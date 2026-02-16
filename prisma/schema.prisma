@@ -38,18 +38,22 @@ model Report {
 }
 
 model PropertyDetails {
-  id         String  @id @default(cuid())
-  reportId   String  @unique
-  roomCount  Int?
-  salonCount Int?
-  bathCount  Int?
-  grossArea  Float?
-  netArea    Float?
-  floor      Int?
-  heating    String?
-  facade     String?
-  view       String?
-  report     Report  @relation(fields: [reportId], references: [id])
+  id               String   @id @default(cuid())
+  reportId         String   @unique
+  roomCount        Int?
+  salonCount       Int?
+  bathCount        Int?
+  grossArea        Float?
+  netArea          Float?
+  floor            Int?
+  heating          String?
+  facade           String?
+  view             String?
+  terraceArea      Float?
+  usageStatus      String?
+  facadeDirections String[]
+  viewTags         String[]
+  report           Report   @relation(fields: [reportId], references: [id])
 }
 
 model BuildingDetails {

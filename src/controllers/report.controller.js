@@ -2,8 +2,7 @@ const prisma = require("../prisma");
 const { priceIndexPrompt } = require("../ai/prompts/priceIndexPrompt");
 const { normalizePriceIndex } = require("../ai/normalize/priceIndexNormalize");
 const { textToJson } = require("../services/geminiTextToJson");
-
-
+const {sanitizePricingAnalysis, sanitizeBuildingDetails, sanitizePropertyDetails, buildAiNote} = require("../utils/reportHelpers");
 const mediaSelect = {
     id: true,
     type: true,
@@ -91,45 +90,47 @@ exports.updateReport = async (req, res) => {
     const id = req.params.id;
     const body = req.body || {};
 
-    // ✅ sadece gelen alanları uygula (undefined ile ezme yok)
-    const data = {};
-    if (body.clientFullName !== undefined) data.clientFullName = body.clientFullName;
-    if (body.addressText !== undefined) data.addressText = body.addressText;
-    if (body.parcelText !== undefined) data.parcelText = body.parcelText;
-    if (body.consultantOpinion !== undefined) data.consultantOpinion = body.consultantOpinion;
-    if (body.comparablesJson !== undefined) data.comparablesJson = body.comparablesJson;
+    try {
+        const data = {};
 
-    if (body.propertyDetails) {
-        data.propertyDetails = {
-            upsert: { create: body.propertyDetails, update: body.propertyDetails }
-        };
-    }
+        if (body.clientFullName !== undefined) data.clientFullName = body.clientFullName;
+        if (body.addressText !== undefined) data.addressText = body.addressText;
+        if (body.parcelText !== undefined) data.parcelText = body.parcelText;
+        if (body.consultantOpinion !== undefined) data.consultantOpinion = body.consultantOpinion;
+        if (body.comparablesJson !== undefined) data.comparablesJson = body.comparablesJson;
 
-    if (body.buildingDetails) {
-        data.buildingDetails = {
-            upsert: { create: body.buildingDetails, update: body.buildingDetails }
-        };
-    }
-
-    if (body.pricingAnalysis) {
-        data.pricingAnalysis = {
-            upsert: { create: body.pricingAnalysis, update: body.pricingAnalysis }
-        };
-    }
-
-    const updated = await prisma.report.update({
-        where: { id },
-        data,
-        include: {
-            user: { include: { media: { orderBy: { order: "asc" }, select: mediaSelect } } },
-            media: { orderBy: { order: "asc" }, select: mediaSelect },
-            propertyDetails: true,
-            buildingDetails: true,
-            pricingAnalysis: true
+        const pd = sanitizePropertyDetails(body.propertyDetails);
+        if (pd) {
+            data.propertyDetails = { upsert: { create: pd, update: pd } };
         }
-    });
 
-    res.json(updated);
+        const bd = sanitizeBuildingDetails(body.buildingDetails);
+        if (bd) {
+            data.buildingDetails = { upsert: { create: bd, update: bd } };
+        }
+
+        const pa = sanitizePricingAnalysis(body.pricingAnalysis);
+        if (pa) {
+            data.pricingAnalysis = { upsert: { create: pa, update: pa } };
+        }
+
+        const updated = await prisma.report.update({
+            where: { id },
+            data,
+            include: {
+                user: { include: { media: { orderBy: { order: "asc" }, select: mediaSelect } } },
+                media: { orderBy: { order: "asc" }, select: mediaSelect },
+                propertyDetails: true,
+                buildingDetails: true,
+                pricingAnalysis: true
+            }
+        });
+
+        return res.json(updated);
+    } catch (e) {
+        // ✅ BFF'nin HTML dönmesini engellemek için JSON error dön
+        return res.status(400).json({ error: String(e.message || e) });
+    }
 };
 
 exports.aiPriceIndex = async (req, res) => {
@@ -230,8 +231,8 @@ exports.aiPriceIndex = async (req, res) => {
         }
 
         const normalized = normalizePriceIndex(json, areaForSqm);
+        const note = buildAiNote(normalized);
 
-        // DB’ye yaz
         await prisma.report.update({
             where: { id: reportId },
             data: {
@@ -239,14 +240,14 @@ exports.aiPriceIndex = async (req, res) => {
                     upsert: {
                         create: {
                             minPrice: normalized.minPrice,
-                            expectedPrice: normalized.avgPrice, // ortalama -> expectedPrice
+                            expectedPrice: normalized.avgPrice,
                             maxPrice: normalized.maxPrice,
                             minPricePerSqm: normalized.minPricePerSqm,
                             expectedPricePerSqm: normalized.avgPricePerSqm,
                             maxPricePerSqm: normalized.maxPricePerSqm,
                             confidence: normalized.confidence,
-                            note: normalized.rationale,
-                            aiJson: { raw: json, meta: { at: new Date().toISOString() } }
+                            note,
+                            aiJson: { raw: json, normalized, meta: { at: new Date().toISOString() } }
                         },
                         update: {
                             minPrice: normalized.minPrice,
@@ -256,8 +257,8 @@ exports.aiPriceIndex = async (req, res) => {
                             expectedPricePerSqm: normalized.avgPricePerSqm,
                             maxPricePerSqm: normalized.maxPricePerSqm,
                             confidence: normalized.confidence,
-                            note: normalized.rationale,
-                            aiJson: { raw: json, meta: { at: new Date().toISOString() } }
+                            note,
+                            aiJson: { raw: json, normalized, meta: { at: new Date().toISOString() } }
                         }
                     }
                 },

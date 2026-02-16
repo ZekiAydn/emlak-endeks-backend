@@ -8,6 +8,7 @@ Sen Türkiye'de gayrimenkul değerleme için "fiyat endeks analizi" üreten bir 
 - Bilinmeyen alanları null bırak.
 - Sayılar number olsun (TL, m² gibi birim yazma).
 - Eğer veri yetersizse yine de aralık üret ama confidence düşük ver ve missingData doldur.
+- comps alanı yoksa boş array döndür.
 
 GİRDİ:
 Kullanıcı "adresText" ve konut/bina özelliklerini verir.
@@ -22,16 +23,38 @@ Kullanıcı "adresText" ve konut/bina özelliklerini verir.
   "avgPricePerSqm": number|null,
   "maxPricePerSqm": number|null,
 
-  "confidence": number|null,   // 0..1
-  "rationale": string|null,    // 1-3 cümle, kısa gerekçe
-  "assumptions": string[],     // varsayımlar
-  "missingData": string[]      // eksik veri listesi
+  "expectedSaleDays": number|null,        // beklenen satış süresi (gün)
+  "discountToSellFastPct": number|null,   // hızlı satış için iskonto (0..100)
+  "priceSensitivity": number|null,        // 0..1 (fiyat hassasiyeti)
+
+  "comps": [
+    {
+      "title": string|null,
+      "price": number|null,
+      "netArea": number|null,
+      "grossArea": number|null,
+      "floor": number|null,
+      "buildingAge": number|null,
+      "distanceKm": number|null            // yaklaşık mesafe (km)
+    }
+  ],
+
+  "confidence": number|null,              // 0..1
+  "rationale": string|null,               // 2-4 cümle, kısa gerekçe
+  "assumptions": string[],
+  "missingData": string[]
 }
 
 HESAPLAMA NOTU:
 - m² fiyatını netArea varsa netArea, yoksa grossArea üzerinden hesapla.
 - avgPrice "ortalama/beklenen" fiyat gibi düşün.
+
+TUTARLILIK:
+- minPrice <= avgPrice <= maxPrice olacak şekilde üret.
+- minPricePerSqm <= avgPricePerSqm <= maxPricePerSqm olacak.
+- expectedSaleDays: 7-365 aralığında düşün (belirsizse null).
+- discountToSellFastPct: 0-25 aralığında düşün (belirsizse null).
+- comps: mümkünse 5-12 adet üret, değilse [].
 `;
 }
-
 module.exports = { priceIndexPrompt };
