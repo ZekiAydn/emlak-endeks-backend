@@ -1,10 +1,8 @@
 const prisma = require("../prisma");
-const { pickDefined } = require("../utils/aiJson");
+const { priceIndexPrompt } = require("../ai/prompts/priceIndexPrompt");
+const { normalizePriceIndex } = require("../ai/normalize/priceIndexNormalize");
+const { textToJson } = require("../services/geminiTextToJson");
 
-const { sahibindenAutofillPrompt } = require("../ai/prompts/sahibindenAutofillPrompt");
-const { normalizeSahibinden } = require("../ai/normalize/sahibindenNormalize");
-
-const { visionToJson } = require("../services/geminiVision");
 
 const mediaSelect = {
     id: true,
@@ -134,41 +132,93 @@ exports.updateReport = async (req, res) => {
     res.json(updated);
 };
 
-exports.aiAutofill = async (req, res) => {
+exports.aiPriceIndex = async (req, res) => {
     try {
         const reportId = req.params.id;
-        const { imageMediaId } = req.body || {};
 
-        if (!imageMediaId) {
-            return res.status(400).json({ error: "imageMediaId required (ilan ekran görüntüsü)" });
-        }
-
-        const report = await prisma.report.findUnique({ where: { id: reportId } });
+        const report = await prisma.report.findUnique({
+            where: { id: reportId },
+            include: { propertyDetails: true, buildingDetails: true, pricingAnalysis: true }
+        });
         if (!report) return res.status(404).json({ error: "Report not found" });
 
-        const media = await prisma.media.findUnique({ where: { id: imageMediaId } });
-        if (!media) return res.status(404).json({ error: "Media not found" });
+        // Body override (front kaydetmeden analiz isteyebilir)
+        const body = req.body || {};
 
-        // ✅ güvenlik: yanlış rapora bağlı media engelle
-        if (media.reportId && media.reportId !== reportId) {
-            return res.status(400).json({ error: "This media does not belong to this report" });
+        const addressText = body.addressText ?? report.addressText ?? null;
+
+        const propertyDetails = {
+            ...(report.propertyDetails || {}),
+            ...(body.propertyDetails || {})
+        };
+
+        const buildingDetails = {
+            ...(report.buildingDetails || {}),
+            ...(body.buildingDetails || {})
+        };
+
+        // Minimum doğrulama: adres + alanlardan en az biri
+        const netArea = propertyDetails?.netArea ?? null;
+        const grossArea = propertyDetails?.grossArea ?? null;
+        const areaForSqm = netArea || grossArea || null;
+
+        if (!addressText) {
+            return res.status(400).json({ error: "addressText required" });
         }
-
-        // ✅ sadece image
-        if (!String(media.mime || "").startsWith("image/")) {
-            return res.status(400).json({ error: "Only image uploads supported for AI autofill" });
+        if (!areaForSqm) {
+            return res.status(400).json({ error: "netArea or grossArea required for price analysis" });
         }
 
         const apiKey = process.env.GEMINI_API_KEY;
         const modelName = process.env.GEMINI_MODEL || "gemini-1.5-flash";
-        const prompt = sahibindenAutofillPrompt();
+        const prompt = priceIndexPrompt();
 
-        const { rawText, json } = await visionToJson({
+        const input = {
+            addressText,
+            propertyDetails: {
+                roomCount: propertyDetails.roomCount ?? null,
+                salonCount: propertyDetails.salonCount ?? null,
+                bathCount: propertyDetails.bathCount ?? null,
+                grossArea: propertyDetails.grossArea ?? null,
+                netArea: propertyDetails.netArea ?? null,
+                floor: propertyDetails.floor ?? null,
+                heating: propertyDetails.heating ?? null,
+                terraceArea: propertyDetails.terraceArea ?? null,
+                facadeDirections: propertyDetails.facadeDirections ?? null,
+                viewTags: propertyDetails.viewTags ?? null,
+                usageStatus: propertyDetails.usageStatus ?? null
+            },
+            buildingDetails: {
+                propertyType: buildingDetails.propertyType ?? null,
+                buildingAge: buildingDetails.buildingAge ?? null,
+                buildingFloors: buildingDetails.buildingFloors ?? null,
+
+                isOnMainRoad: buildingDetails.isOnMainRoad ?? null,
+                isOnStreet: buildingDetails.isOnStreet ?? null,
+                isSite: buildingDetails.isSite ?? null,
+                hasElevator: buildingDetails.hasElevator ?? null,
+                openParking: buildingDetails.openParking ?? null,
+                closedParking: buildingDetails.closedParking ?? null,
+                hasSportsArea: buildingDetails.hasSportsArea ?? null,
+                hasCaretaker: buildingDetails.hasCaretaker ?? null,
+                hasChildrenPark: buildingDetails.hasChildrenPark ?? null,
+                security: buildingDetails.security ?? null,
+                openPool: buildingDetails.openPool ?? null,
+                closedPool: buildingDetails.closedPool ?? null,
+                hasGenerator: buildingDetails.hasGenerator ?? null,
+                hasThermalInsulation: buildingDetails.hasThermalInsulation ?? null,
+                hasAC: buildingDetails.hasAC ?? null,
+                hasFireplace: buildingDetails.hasFireplace ?? null,
+
+                buildingCondition: buildingDetails.buildingCondition ?? null
+            }
+        };
+
+        const { rawText, json } = await textToJson({
             apiKey,
             modelName,
             prompt,
-            imageBuffer: media.data,
-            mimeType: media.mime || "image/jpeg",
+            input,
             temperature: 0
         });
 
@@ -179,51 +229,50 @@ exports.aiAutofill = async (req, res) => {
             });
         }
 
-        const extracted = normalizeSahibinden(json);
+        const normalized = normalizePriceIndex(json, areaForSqm);
 
-        const reportData = {};
-        if (extracted.addressText) reportData.addressText = extracted.addressText;
-        if (extracted.parcelText) reportData.parcelText = extracted.parcelText;
-
-        reportData.propertyDetails = {
-            upsert: {
-                create: pickDefined(extracted.propertyDetails),
-                update: pickDefined(extracted.propertyDetails)
-            }
-        };
-
-        reportData.buildingDetails = {
-            upsert: {
-                create: pickDefined(extracted.buildingDetails),
-                update: pickDefined(extracted.buildingDetails)
-            }
-        };
-
-        reportData.pricingAnalysis = {
-            upsert: {
-                create: pickDefined(extracted.pricingAnalysis),
-                update: pickDefined(extracted.pricingAnalysis)
-            }
-        };
-
-        // ✅ şema dışı alanları da düzenli sakla
-        reportData.comparablesJson = {
-            ...(report.comparablesJson || {}),
-            listing: extracted.listing || null,
-            listingExtras: extracted.extras || null,
-            geminiAutofill: {
-                at: new Date().toISOString(),
-                imageMediaId,
-                extracted
-            }
-        };
-
+        // DB’ye yaz
         await prisma.report.update({
             where: { id: reportId },
-            data: reportData
+            data: {
+                pricingAnalysis: {
+                    upsert: {
+                        create: {
+                            minPrice: normalized.minPrice,
+                            expectedPrice: normalized.avgPrice, // ortalama -> expectedPrice
+                            maxPrice: normalized.maxPrice,
+                            minPricePerSqm: normalized.minPricePerSqm,
+                            expectedPricePerSqm: normalized.avgPricePerSqm,
+                            maxPricePerSqm: normalized.maxPricePerSqm,
+                            confidence: normalized.confidence,
+                            note: normalized.rationale,
+                            aiJson: { raw: json, meta: { at: new Date().toISOString() } }
+                        },
+                        update: {
+                            minPrice: normalized.minPrice,
+                            expectedPrice: normalized.avgPrice,
+                            maxPrice: normalized.maxPrice,
+                            minPricePerSqm: normalized.minPricePerSqm,
+                            expectedPricePerSqm: normalized.avgPricePerSqm,
+                            maxPricePerSqm: normalized.maxPricePerSqm,
+                            confidence: normalized.confidence,
+                            note: normalized.rationale,
+                            aiJson: { raw: json, meta: { at: new Date().toISOString() } }
+                        }
+                    }
+                },
+                comparablesJson: {
+                    ...(report.comparablesJson || {}),
+                    priceIndex: {
+                        at: new Date().toISOString(),
+                        input,
+                        output: normalized
+                    }
+                }
+            }
         });
 
-        return res.json(extracted);
+        return res.json(normalized);
     } catch (e) {
         return res.status(500).json({ error: String(e.message || e) });
     }

@@ -7,6 +7,6 @@ router.get("/reports", c.listReports);
 router.get("/reports/:id", c.getReport);
 router.put("/reports/:id", c.updateReport);
 router.delete("/reports/:id", c.deleteReport);
-router.post("/reports/:id/ai/autofill", c.aiAutofill);
+router.post("/reports/:id/ai/price-index", c.aiPriceIndex);
 
 module.exports = router;

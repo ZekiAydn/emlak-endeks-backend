@@ -7,61 +7,39 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum MediaType {
-  USER_PHOTO
-  CERTIFICATE
-  REPORT_COVER
-  MAP_IMAGE
-  COMPS_SCREENSHOT
-  CHARTS_SCREENSHOT
-  OTHER
-}
-
 model User {
-  id       String  @id @default(cuid())
-  fullName String
-  phone    String?
-  email    String?
-  about    String?
-
+  id        String   @id @default(cuid())
+  fullName  String
+  phone     String?
+  email     String?
+  about     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  media   Media[]  @relation("UserMedia")
-  reports Report[]
+  media     Media[]  @relation("UserMedia")
+  reports   Report[]
 }
 
 model Report {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-
-  // 1. sayfa
+  id                String           @id @default(cuid())
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  userId            String
   clientFullName    String
   addressText       String
   parcelText        String
   reportDate        DateTime
   consultantOpinion String?
-
-  // 3. sayfa (formdan)
-  propertyDetails PropertyDetails?
-  buildingDetails BuildingDetails?
-  pricingAnalysis PricingAnalysis?
-
-  // emsaller tablosu vs. (şimdilik serbest)
-  comparablesJson Json?
-
-  media Media[] @relation("ReportMedia")
+  comparablesJson   Json?
+  buildingDetails   BuildingDetails?
+  media             Media[]          @relation("ReportMedia")
+  pricingAnalysis   PricingAnalysis?
+  propertyDetails   PropertyDetails?
+  user              User             @relation(fields: [userId], references: [id])
 }
 
 model PropertyDetails {
-  id       String @id @default(cuid())
-  reportId String @unique
-  report   Report @relation(fields: [reportId], references: [id])
-
+  id         String  @id @default(cuid())
+  reportId   String  @unique
   roomCount  Int?
   salonCount Int?
   bathCount  Int?
@@ -71,52 +49,75 @@ model PropertyDetails {
   heating    String?
   facade     String?
   view       String?
+  report     Report  @relation(fields: [reportId], references: [id])
 }
 
 model BuildingDetails {
-  id       String @id @default(cuid())
-  reportId String @unique
-  report   Report @relation(fields: [reportId], references: [id])
-
-  buildingAge    Int?
-  buildingFloors Int?
-  hasElevator    Boolean?
-  hasParking     Boolean?
-  isSite         Boolean?
-  security       Boolean?
+  id                   String   @id @default(cuid())
+  reportId             String   @unique
+  buildingAge          Int?
+  buildingFloors       Int?
+  hasElevator          Boolean?
+  isSite               Boolean?
+  security             Boolean?
+  buildingCondition    String?
+  closedParking        Boolean?
+  closedPool           Boolean?
+  hasAC                Boolean?
+  hasCaretaker         Boolean?
+  hasChildrenPark      Boolean?
+  hasFireplace         Boolean?
+  hasGenerator         Boolean?
+  hasSportsArea        Boolean?
+  hasThermalInsulation Boolean?
+  isOnMainRoad         Boolean?
+  isOnStreet           Boolean?
+  openParking          Boolean?
+  openPool             Boolean?
+  propertyType         String?
+  report               Report   @relation(fields: [reportId], references: [id])
 }
 
 model PricingAnalysis {
-  id       String @id @default(cuid())
-  reportId String @unique
-  report   Report @relation(fields: [reportId], references: [id])
-
-  minPrice      Float?
-  expectedPrice Float?
-  maxPrice      Float?
-  note          String?
+  id                  String   @id @default(cuid())
+  reportId            String   @unique
+  minPrice            Float?
+  expectedPrice       Float?
+  maxPrice            Float?
+  note                String?
+  minPricePerSqm      Float?
+  expectedPricePerSqm Float?
+  maxPricePerSqm      Float?
+  confidence          Float?
+  aiJson              Json?
+  createdAt           DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt           DateTime @default(now()) @db.Timestamptz(6)
+  report              Report   @relation(fields: [reportId], references: [id])
 }
 
 model Media {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now())
-
-  type     MediaType
-  mime     String
-  filename String?
-
-  // MVP: dosyayı DB’de tut (bytea)
-  data Bytes
-
-  // ilişki: user veya report
-  userId String?
-  user   User?   @relation("UserMedia", fields: [userId], references: [id])
-
-  reportId String?
-  report   Report? @relation("ReportMedia", fields: [reportId], references: [id])
-
-  order Int @default(0)
+  id        String    @id @default(cuid())
+  createdAt DateTime  @default(now())
+  type      MediaType
+  mime      String
+  filename  String?
+  data      Bytes
+  userId    String?
+  reportId  String?
+  order     Int       @default(0)
+  report    Report?   @relation("ReportMedia", fields: [reportId], references: [id])
+  user      User?     @relation("UserMedia", fields: [userId], references: [id])
 
   @@index([userId])
   @@index([reportId])
+}
+
+enum MediaType {
+  USER_PHOTO
+  CERTIFICATE
+  REPORT_COVER
+  MAP_IMAGE
+  COMPS_SCREENSHOT
+  CHARTS_SCREENSHOT
+  OTHER
 }
