@@ -1,8 +1,8 @@
 const router = require("express").Router();
 const c = require("../controllers/user.controller");
+const authRequired = require("../middleware/authRequired");
 
-router.post("/bootstrap", c.bootstrap);
-router.get("/me", c.getMe);
-router.put("/me", c.updateMe);
+router.get("/me", authRequired, c.getMe);
+router.put("/me", authRequired, c.updateMe);
 
 module.exports = router;
