@@ -73,16 +73,3 @@ exports.logout = async (req, res) => {
     });
     return res.json({ ok: true });
 };
-
-exports.me = async (req, res) => {
-    // authRequired middleware req.user set eder
-    const userId = req.user?.userId;
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
-
-    const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { id: true, username: true, role: true, fullName: true, phone: true, email: true, about: true }
-    });
-    if (!user) return res.status(401).json({ error: "Unauthorized" });
-    return res.json(user);
-};

@@ -171,7 +171,7 @@ exports.aiPriceIndex = async (req, res) => {
         }
 
         const apiKey = process.env.GEMINI_API_KEY;
-        const modelName = process.env.GEMINI_MODEL || "gemini-1.5-flash";
+        const modelName = process.env.GEMINI_MODEL;
         const prompt = priceIndexPrompt();
 
         const input = {

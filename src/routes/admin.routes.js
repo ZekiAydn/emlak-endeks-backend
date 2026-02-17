@@ -7,7 +7,7 @@ const requireRole = require("../middleware/requireRole");
 router.use(authRequired, requireRole("ADMIN"));
 
 // list
-router.get("/admin/users", async (req, res) => {
+router.get("/users", async (req, res) => {
     const take = Math.min(Number(req.query.take || 50), 100);
     const skip = Number(req.query.skip || 0);
     const q = String(req.query.q || "").trim();
@@ -27,7 +27,7 @@ router.get("/admin/users", async (req, res) => {
     res.json(items);
 });
 
-router.get("/admin/users/:id", async (req, res) => {
+router.get("/users/:id", async (req, res) => {
     const id = req.params.id;
 
     const user = await prisma.user.findUnique({
@@ -52,7 +52,7 @@ router.get("/admin/users/:id", async (req, res) => {
 });
 
 // update profile/role/status
-router.put("/admin/users/:id", async (req, res) => {
+router.put("/users/:id", async (req, res) => {
     const id = req.params.id;
     const { fullName, phone, email, about, role, isActive } = req.body || {};
 
@@ -73,7 +73,7 @@ router.put("/admin/users/:id", async (req, res) => {
 });
 
 // reset password
-router.put("/admin/users/:id/password", async (req, res) => {
+router.put("/users/:id/password", async (req, res) => {
     const id = req.params.id;
     const { password } = req.body || {};
     if (!password || String(password).length < 8) return res.status(400).json({ error: "password min 8" });
@@ -83,8 +83,8 @@ router.put("/admin/users/:id/password", async (req, res) => {
     res.json({ ok: true });
 });
 
-// "delete" = deactivate (FK yüzünden fiziksel silme sıkıntı çıkarır)
-router.delete("/admin/users/:id", async (req, res) => {
+// "delete" = deactivate
+router.delete("/users/:id", async (req, res) => {
     const id = req.params.id;
     await prisma.user.update({ where: { id }, data: { isActive: false } });
     res.json({ ok: true });

@@ -1,6 +1,6 @@
 const jwt = require("jsonwebtoken");
 
-const COOKIE_NAME = process.env.AUTH_COOKIE_NAME || "emlakskor_token";
+const COOKIE_NAME = "emlakskor_token";
 
 function cookieName() {
     return COOKIE_NAME;

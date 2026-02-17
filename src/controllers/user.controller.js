@@ -5,7 +5,8 @@ const mediaSelect = {
 };
 
 exports.getMe = async (req, res) => {
-    const userId = req.user.userId;
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
     const user = await prisma.user.findUnique({
         where: { id: userId },
