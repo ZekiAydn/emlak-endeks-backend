@@ -112,20 +112,22 @@ function sanitizePricingAnalysis(pa) {
     });
 }
 
-function buildAiNote(normalized) {
+function buildAiNote(n) {
     const parts = [];
-    if (normalized?.rationale) parts.push(String(normalized.rationale));
+    if (n?.rationale) parts.push(String(n.rationale));
 
-    if (Array.isArray(normalized?.assumptions) && normalized.assumptions.length) {
-        parts.push("\nVarsayımlar:\n- " + normalized.assumptions.map(String).join("\n- "));
+    if (Array.isArray(n?.assumptions) && n.assumptions.length) {
+        parts.push("\nVarsayımlar:\n- " + n.assumptions.map(String).join("\n- "));
     }
 
-    if (Array.isArray(normalized?.missingData) && normalized.missingData.length) {
-        parts.push("\nEksik Veri:\n- " + normalized.missingData.map(String).join("\n- "));
+    // ✅ boşsa hiç basma
+    if (Array.isArray(n?.missingData) && n.missingData.length) {
+        parts.push("\nEksik Veri:\n- " + n.missingData.map(String).join("\n- "));
     }
 
     return parts.filter(Boolean).join("\n");
 }
+
 
 module.exports = {
     pickDefined,

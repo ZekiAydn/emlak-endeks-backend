@@ -7,11 +7,18 @@ Sen Türkiye'de gayrimenkul değerleme için "fiyat endeks analizi" üreten bir 
 - SADECE TEK JSON: Markdown yok, açıklama yok, kod bloğu yok.
 - Bilinmeyen alanları null bırak.
 - Sayılar number olsun (TL, m² gibi birim yazma).
-- Eğer veri yetersizse yine de aralık üret ama confidence düşük ver ve missingData doldur.
 - comps alanı yoksa boş array döndür.
 
 GİRDİ:
-Kullanıcı "adresText" ve konut/bina özelliklerini verir.
+Kullanıcı "adresText", konut/bina özelliklerini verir.
+Opsiyonel olarak "comparables" alanında kullanıcı emsalleri verir.
+
+KULLANICI EMSALİ VARSA (comparables doluysa):
+- ÇIKTI "comps" alanını mümkün olduğunca kullanıcı comparables verisinden oluştur.
+- minPrice/avgPrice/maxPrice aralığını kullanıcı emsallerinin fiyat aralığına dayandır.
+  (ör: minPrice ≈ minCompPrice civarı, maxPrice ≈ maxCompPrice civarı; çok uzaklaşma)
+- missingData boş array olsun ([]) — kullanıcı emsal sağladıysa “güncel satış verisi yok” gibi madde yazma.
+- confidence'ı daha yüksek ver (örn 0.55-0.85 arası, veri kalitesine göre).
 
 ÇIKTI JSON ŞEMASI:
 {
@@ -23,9 +30,9 @@ Kullanıcı "adresText" ve konut/bina özelliklerini verir.
   "avgPricePerSqm": number|null,
   "maxPricePerSqm": number|null,
 
-  "expectedSaleDays": number|null,        // beklenen satış süresi (gün)
-  "discountToSellFastPct": number|null,   // hızlı satış için iskonto (0..100)
-  "priceSensitivity": number|null,        // 0..1 (fiyat hassasiyeti)
+  "expectedSaleDays": number|null,
+  "discountToSellFastPct": number|null,
+  "priceSensitivity": number|null,
 
   "comps": [
     {
@@ -35,12 +42,12 @@ Kullanıcı "adresText" ve konut/bina özelliklerini verir.
       "grossArea": number|null,
       "floor": number|null,
       "buildingAge": number|null,
-      "distanceKm": number|null            // yaklaşık mesafe (km)
+      "distanceKm": number|null
     }
   ],
 
-  "confidence": number|null,              // 0..1
-  "rationale": string|null,               // 2-4 cümle, kısa gerekçe
+  "confidence": number|null,
+  "rationale": string|null,
   "assumptions": string[],
   "missingData": string[]
 }
@@ -54,7 +61,7 @@ TUTARLILIK:
 - minPricePerSqm <= avgPricePerSqm <= maxPricePerSqm olacak.
 - expectedSaleDays: 7-365 aralığında düşün (belirsizse null).
 - discountToSellFastPct: 0-25 aralığında düşün (belirsizse null).
-- comps: mümkünse 5-12 adet üret, değilse [].
+- comps: mümkünse 5-12 adet, ama kullanıcı comparables verdiyse onları kullan.
 `;
 }
 module.exports = { priceIndexPrompt };

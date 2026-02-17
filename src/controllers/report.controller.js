@@ -174,6 +174,28 @@ exports.aiPriceIndex = async (req, res) => {
         const modelName = process.env.GEMINI_MODEL;
         const prompt = priceIndexPrompt();
 
+        const userComparablesRaw =
+            (Array.isArray(body.comparables) ? body.comparables : null) ??
+            (Array.isArray(body.comparablesJson?.comparables) ? body.comparablesJson.comparables : null) ??
+            (Array.isArray(report.comparablesJson?.comparables) ? report.comparablesJson.comparables : null) ??
+            [];
+
+        const toNum = (v) => {
+            const x = Number(v);
+            return Number.isFinite(x) ? x : null;
+        };
+
+        const userComparables = userComparablesRaw.map((c) => ({
+            title: c?.title ?? null,
+            price: toNum(c?.price),
+            netArea: toNum(c?.netArea),
+            grossArea: toNum(c?.grossArea),
+            floor: toNum(c?.floor),
+            buildingAge: toNum(c?.buildingAge),
+            distanceKm: toNum(c?.distanceKm),
+        }));
+
+
         const input = {
             addressText,
             propertyDetails: {
@@ -212,7 +234,8 @@ exports.aiPriceIndex = async (req, res) => {
                 hasFireplace: buildingDetails.hasFireplace ?? null,
 
                 buildingCondition: buildingDetails.buildingCondition ?? null
-            }
+            },
+            comparables: userComparables
         };
 
         const { rawText, json } = await textToJson({
@@ -231,6 +254,47 @@ exports.aiPriceIndex = async (req, res) => {
         }
 
         const normalized = normalizePriceIndex(json, areaForSqm);
+
+        // ✅ Kullanıcı emsali varsa: fiyat aralığını emsal fiyatlarına "kilitle"
+        const compPrices = userComparables.map((c) => Number(c.price)).filter(Number.isFinite);
+
+        const round1000 = (x) => Math.round(x / 1000) * 1000;
+
+        if (compPrices.length >= 2) {
+            const minC = Math.min(...compPrices);
+            const maxC = Math.max(...compPrices);
+            const avgC = compPrices.reduce((a, b) => a + b, 0) / compPrices.length;
+
+            normalized.minPrice = round1000(minC * 0.95);
+            normalized.maxPrice = round1000(maxC * 1.05);
+            normalized.avgPrice = round1000(avgC);
+
+            // sıralama garantisi
+            if (normalized.minPrice > normalized.avgPrice) normalized.avgPrice = normalized.minPrice;
+            if (normalized.avgPrice > normalized.maxPrice) normalized.maxPrice = normalized.avgPrice;
+
+            // m² fiyatı (konu alanı üzerinden)
+            if (areaForSqm && Number.isFinite(Number(areaForSqm)) && Number(areaForSqm) > 0) {
+                normalized.minPricePerSqm = Math.round(normalized.minPrice / areaForSqm);
+                normalized.avgPricePerSqm = Math.round(normalized.avgPrice / areaForSqm);
+                normalized.maxPricePerSqm = Math.round(normalized.maxPrice / areaForSqm);
+            }
+
+            // kullanıcı emsalini çıktı comps’a koy
+            normalized.comps = userComparables;
+
+            // kullanıcı emsal verdiyse "Eksik Veri" istemiyorsun:
+            normalized.missingData = [];
+            normalized.assumptions = Array.isArray(normalized.assumptions) ? normalized.assumptions : [];
+            normalized.assumptions.unshift("Fiyat aralığı kullanıcı tarafından girilen emsallere göre kalibre edilmiştir.");
+            normalized.confidence = normalized.confidence ?? null;
+            if (normalized.confidence !== null && Number.isFinite(Number(normalized.confidence))) {
+                normalized.confidence = Math.max(Number(normalized.confidence), 0.6);
+            } else {
+                normalized.confidence = 0.65;
+            }
+        }
+
         const note = buildAiNote(normalized);
 
         await prisma.report.update({
