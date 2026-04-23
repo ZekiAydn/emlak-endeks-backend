@@ -3,6 +3,9 @@ const { priceIndexPrompt } = require("../ai/prompts/priceIndexPrompt");
 const { normalizePriceIndex } = require("../ai/normalize/priceIndexNormalize");
 const { applyFallbackPriceEstimate, ensureProjectionSections } = require("../ai/fallback/priceEstimate");
 const { textToJson } = require("../services/geminiTextToJson");
+const { fetchRemaxComparableBundle } = require("../services/remaxComparables");
+const { fetchParcelLookup } = require("../services/tkgmParcel");
+const { captureParcelMapImage, buildParcelHashUrl } = require("../services/tkgmParcelScreenshot");
 const {
     sanitizePricingAnalysis,
     sanitizeBuildingDetails,
@@ -68,6 +71,7 @@ async function getReport(userId, id) {
 function normalizeComparable(c) {
     const distanceMeters = toNum(c?.distanceMeters);
     const distanceKm = toNum(c?.distanceKm) ?? (distanceMeters !== null ? distanceMeters / 1000 : null);
+    const floor = toNum(c?.floor);
 
     return {
         title: c?.title ?? null,
@@ -76,13 +80,23 @@ function normalizeComparable(c) {
         price: toNum(c?.price),
         netArea: toNum(c?.netArea),
         grossArea: toNum(c?.grossArea),
-        floor: toNum(c?.floor),
+        floor,
+        floorText: c?.floorText ?? (floor === null && typeof c?.floor === "string" ? c.floor : null),
         totalFloors: toNum(c?.totalFloors),
         buildingAge: toNum(c?.buildingAge),
         distanceKm,
         distanceMeters,
         listingAgeDays: toNum(c?.listingAgeDays),
         roomText: c?.roomText ?? null,
+        imageUrl: c?.imageUrl ?? null,
+        address: c?.address ?? null,
+        externalId: c?.externalId ?? null,
+        createdAt: c?.createdAt ?? null,
+        group: c?.group ?? null,
+        provider: c?.provider ?? null,
+        pricePerSqm: toNum(c?.pricePerSqm),
+        latitude: toNum(c?.latitude),
+        longitude: toNum(c?.longitude),
     };
 }
 
@@ -94,6 +108,42 @@ function comparablesFrom(body, report) {
         [];
 
     return raw.map(normalizeComparable);
+}
+
+function mergeComparablesJson(existingValue, incomingValue) {
+    if (incomingValue === null) return null;
+    if (incomingValue === undefined) return existingValue;
+
+    const merged = {
+        ...(existingValue || {}),
+        ...(incomingValue || {}),
+    };
+
+    if (incomingValue && Object.prototype.hasOwnProperty.call(incomingValue, "comparables")) {
+        merged.comparables = incomingValue.comparables;
+    }
+
+    return merged;
+}
+
+async function replaceReportMedia(reportId, { type, buffer, mime, filename }) {
+    if (!reportId || !type || !buffer || !mime) return null;
+
+    await prisma.media.deleteMany({
+        where: { reportId, type },
+    });
+
+    return await prisma.media.create({
+        data: {
+            reportId,
+            type,
+            data: buffer,
+            mime,
+            filename: filename || null,
+            order: 0,
+        },
+        select: mediaSelect,
+    });
 }
 
 exports.createReport = async (req, res) => {
@@ -192,7 +242,7 @@ exports.updateReport = async (req, res) => {
     const id = req.params.id;
     const body = req.body || {};
 
-    await getReport(userId, id);
+    const existingReport = await getReport(userId, id);
 
     const data = {};
     let property = null;
@@ -217,7 +267,7 @@ exports.updateReport = async (req, res) => {
     if (body.addressText !== undefined) data.addressText = cleanString(body.addressText || property?.addressText);
     if (body.parcelText !== undefined) data.parcelText = cleanString(body.parcelText ?? property?.parcelText ?? "");
     if (body.consultantOpinion !== undefined) data.consultantOpinion = body.consultantOpinion || "";
-    if (body.comparablesJson !== undefined) data.comparablesJson = body.comparablesJson;
+    if (body.comparablesJson !== undefined) data.comparablesJson = mergeComparablesJson(existingReport.comparablesJson, body.comparablesJson);
     if (body.marketProjectionJson !== undefined) data.marketProjectionJson = body.marketProjectionJson;
     if (body.regionalStatsJson !== undefined) data.regionalStatsJson = body.regionalStatsJson;
 
@@ -237,6 +287,163 @@ exports.updateReport = async (req, res) => {
     });
 
     res.json(updated);
+};
+
+exports.autofillExternalData = async (req, res) => {
+    const userId = req.user.userId;
+    const reportId = req.params.id;
+    const body = req.body || {};
+
+    const report = await prisma.report.findFirst({
+        where: { id: reportId, userId },
+        include: {
+            property: true,
+            propertyDetails: true,
+            buildingDetails: true,
+            pricingAnalysis: true,
+        },
+    });
+    if (!report) throw notFound("Rapor bulunamadı.");
+
+    const property = report.property || {};
+    const propertyDetails = {
+        ...(report.propertyDetails || {}),
+        ...(body.propertyDetails || {}),
+    };
+    const buildingDetails = {
+        ...(report.buildingDetails || {}),
+        ...(body.buildingDetails || {}),
+    };
+
+    const criteria = {
+        city: cleanString(body.city ?? property.city ?? ""),
+        district: cleanString(body.district ?? property.district ?? ""),
+        neighborhood: cleanString(body.neighborhood ?? property.neighborhood ?? ""),
+        blockNo: cleanString(body.blockNo ?? property.blockNo ?? ""),
+        parcelNo: cleanString(body.parcelNo ?? property.parcelNo ?? ""),
+        propertyType: cleanString(body.propertyType ?? buildingDetails.propertyType ?? ""),
+    };
+
+    const subjectArea =
+        toNum(body.subjectArea) ??
+        toNum(propertyDetails.netArea) ??
+        toNum(propertyDetails.grossArea) ??
+        null;
+    const subjectRoomText =
+        propertyDetails.roomCount !== undefined && propertyDetails.roomCount !== null
+            ? `${propertyDetails.roomCount}${propertyDetails.salonCount !== undefined && propertyDetails.salonCount !== null ? `+${propertyDetails.salonCount}` : ""}`
+            : null;
+
+    const warnings = [];
+    let parcelLookup = report.comparablesJson?.parcelLookup || null;
+
+    if (criteria.city && criteria.district && criteria.neighborhood && criteria.blockNo && criteria.parcelNo) {
+        try {
+            parcelLookup = await fetchParcelLookup(criteria);
+            if (parcelLookup) {
+                parcelLookup.sourceUrl = buildParcelHashUrl(parcelLookup);
+            }
+        } catch (error) {
+            warnings.push(String(error.message || error));
+        }
+    }
+
+    let bundle = null;
+    if (criteria.city && criteria.district) {
+        try {
+            bundle = await fetchRemaxComparableBundle(criteria, {
+                parcelLookup,
+                subjectPoint: parcelLookup?.center || null,
+                subjectArea,
+                subjectRoomText,
+            });
+        } catch (error) {
+            warnings.push(String(error.message || error));
+        }
+    }
+
+    if (!bundle && !parcelLookup) {
+        throw badRequest(
+            warnings[0] ||
+                "Otomatik veri çekmek için taşınmazın il, ilçe, mahalle, ada ve parsel bilgileri eksiksiz olmalı."
+        );
+    }
+
+    const nextComparablesJson = {
+        ...(report.comparablesJson || {}),
+        ...(bundle
+            ? {
+                  comparables: bundle.comparables,
+                  groups: bundle.groups,
+                  remaxSource: bundle.sourceMeta,
+              }
+            : {}),
+        ...(parcelLookup ? { parcelLookup } : {}),
+        externalDataUpdatedAt: new Date().toISOString(),
+    };
+
+    if (parcelLookup) {
+        try {
+            const mapCapture = await captureParcelMapImage(parcelLookup);
+            if (mapCapture?.buffer) {
+                await replaceReportMedia(reportId, {
+                    type: "MAP_IMAGE",
+                    buffer: mapCapture.buffer,
+                    mime: mapCapture.mime,
+                    filename: mapCapture.filename,
+                });
+                nextComparablesJson.parcelLookup = {
+                    ...nextComparablesJson.parcelLookup,
+                    sourceUrl: mapCapture.sourceUrl || nextComparablesJson.parcelLookup?.sourceUrl || null,
+                };
+            }
+        } catch (error) {
+            warnings.push(`TKGM harita görüntüsü alınamadı: ${String(error.message || error)}`);
+        }
+    }
+
+    const pricingUpdate = bundle?.priceBand
+        ? {
+              minPrice: bundle.priceBand.minPrice,
+              expectedPrice: bundle.priceBand.expectedPrice,
+              maxPrice: bundle.priceBand.maxPrice,
+              minPricePerSqm: bundle.priceBand.minPricePerSqm,
+              expectedPricePerSqm: bundle.priceBand.expectedPricePerSqm,
+              maxPricePerSqm: bundle.priceBand.maxPricePerSqm,
+              confidence: bundle.priceBand.confidence,
+              note: report.pricingAnalysis?.note || bundle.priceBand.note,
+          }
+        : null;
+
+    await prisma.report.update({
+        where: { id: reportId },
+        data: {
+            comparablesJson: nextComparablesJson,
+            ...(bundle?.marketProjection ? { marketProjectionJson: bundle.marketProjection } : {}),
+            ...(bundle?.regionalStats ? { regionalStatsJson: bundle.regionalStats } : {}),
+            ...(pricingUpdate
+                ? {
+                      pricingAnalysis: {
+                          upsert: {
+                              create: pricingUpdate,
+                              update: pricingUpdate,
+                          },
+                      },
+                  }
+                : {}),
+        },
+    });
+
+    res.json({
+        comparables: nextComparablesJson.comparables || [],
+        groups: nextComparablesJson.groups || null,
+        parcelLookup: nextComparablesJson.parcelLookup || null,
+        marketProjection: bundle?.marketProjection || report.marketProjectionJson || null,
+        regionalStats: bundle?.regionalStats || report.regionalStatsJson || null,
+        pricingAnalysis: pricingUpdate || report.pricingAnalysis || null,
+        sourceMeta: bundle?.sourceMeta || nextComparablesJson.remaxSource || null,
+        warnings,
+    });
 };
 
 exports.aiPriceIndex = async (req, res) => {
@@ -407,6 +614,8 @@ exports.aiPriceIndex = async (req, res) => {
     await prisma.report.update({
         where: { id: reportId },
         data: {
+            marketProjectionJson: normalized.marketProjection || null,
+            regionalStatsJson: normalized.regionalStats || null,
             pricingAnalysis: {
                 upsert: {
                     create: {
