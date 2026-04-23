@@ -1,0 +1,1 @@
+ALTER TABLE "Report" DROP COLUMN IF EXISTS "aiReviewJson";

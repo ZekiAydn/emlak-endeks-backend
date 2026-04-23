@@ -38,19 +38,52 @@ function normalizeComps(v) {
     const arr = Array.isArray(v) ? v : [];
     return arr.slice(0, 12).map((c) => ({
         title: strOrNull(c?.title, 90),
+        source: strOrNull(c?.source, 90),
+        sourceUrl: strOrNull(c?.sourceUrl, 220),
         price: toNumberOrNull(c?.price),
         netArea: toNumberOrNull(c?.netArea),
         grossArea: toNumberOrNull(c?.grossArea),
         floor: toNumberOrNull(c?.floor),
+        totalFloors: toNumberOrNull(c?.totalFloors),
         buildingAge: toNumberOrNull(c?.buildingAge),
         distanceKm: toNumberOrNull(c?.distanceKm),
+        distanceMeters: toNumberOrNull(c?.distanceMeters),
+        listingAgeDays: toNumberOrNull(c?.listingAgeDays),
+        roomText: strOrNull(c?.roomText, 20),
     }));
 }
 
+function normalizeMarketProjection(v) {
+    if (!v || typeof v !== "object") return null;
+    const out = {
+        averageMarketingDays: toNumberOrNull(v.averageMarketingDays),
+        competitionStatus: strOrNull(v.competitionStatus, 80),
+        activeComparableCount: toNumberOrNull(v.activeComparableCount),
+        waitingComparableCount: toNumberOrNull(v.waitingComparableCount),
+        annualChangePct: toNumberOrNull(v.annualChangePct),
+        totalReturnPct: toNumberOrNull(v.totalReturnPct),
+        amortizationYears: toNumberOrNull(v.amortizationYears),
+        summary: strOrNull(v.summary, 1000),
+    };
+    return Object.values(out).some((x) => x !== null) ? out : null;
+}
+
+function normalizeRegionalStats(v) {
+    if (!v || typeof v !== "object") return null;
+    const out = {
+        demographicsSummary: strOrNull(v.demographicsSummary, 900),
+        saleMarketSummary: strOrNull(v.saleMarketSummary, 900),
+        rentalMarketSummary: strOrNull(v.rentalMarketSummary, 900),
+        nearbyPlacesSummary: strOrNull(v.nearbyPlacesSummary, 900),
+        riskSummary: strOrNull(v.riskSummary, 900),
+    };
+    return Object.values(out).some(Boolean) ? out : null;
+}
+
 function normalizePriceIndex(json, areaHint /* netArea || grossArea */) {
-    const minPrice = toNumberOrNull(json?.minPrice);
-    const avgPrice = toNumberOrNull(json?.avgPrice);
-    const maxPrice = toNumberOrNull(json?.maxPrice);
+    let minPrice = toNumberOrNull(json?.minPrice);
+    let avgPrice = toNumberOrNull(json?.avgPrice);
+    let maxPrice = toNumberOrNull(json?.maxPrice);
 
     let minPricePerSqm = toNumberOrNull(json?.minPricePerSqm);
     let avgPricePerSqm = toNumberOrNull(json?.avgPricePerSqm);
@@ -58,10 +91,43 @@ function normalizePriceIndex(json, areaHint /* netArea || grossArea */) {
 
     const area = toNumberOrNull(areaHint);
     if (area && area > 0) {
+        if (minPrice === null && minPricePerSqm !== null) minPrice = minPricePerSqm * area;
+        if (avgPrice === null && avgPricePerSqm !== null) avgPrice = avgPricePerSqm * area;
+        if (maxPrice === null && maxPricePerSqm !== null) maxPrice = maxPricePerSqm * area;
+
+        if (avgPrice !== null && minPrice === null) minPrice = avgPrice * 0.88;
+        if (avgPrice !== null && maxPrice === null) maxPrice = avgPrice * 1.12;
+        if (avgPrice === null && minPrice !== null && maxPrice !== null) avgPrice = (minPrice + maxPrice) / 2;
+
         if (minPrice !== null && minPricePerSqm === null) minPricePerSqm = minPrice / area;
         if (avgPrice !== null && avgPricePerSqm === null) avgPricePerSqm = avgPrice / area;
         if (maxPrice !== null && maxPricePerSqm === null) maxPricePerSqm = maxPrice / area;
     }
+
+    if (minPrice !== null && avgPrice !== null && minPrice > avgPrice) minPrice = avgPrice;
+    if (maxPrice !== null && avgPrice !== null && maxPrice < avgPrice) maxPrice = avgPrice;
+    if (minPrice !== null && maxPrice !== null && minPrice > maxPrice) {
+        const tmp = minPrice;
+        minPrice = maxPrice;
+        maxPrice = tmp;
+    }
+
+    if (minPricePerSqm !== null && avgPricePerSqm !== null && minPricePerSqm > avgPricePerSqm) minPricePerSqm = avgPricePerSqm;
+    if (maxPricePerSqm !== null && avgPricePerSqm !== null && maxPricePerSqm < avgPricePerSqm) maxPricePerSqm = avgPricePerSqm;
+    if (minPricePerSqm !== null && maxPricePerSqm !== null && minPricePerSqm > maxPricePerSqm) {
+        const tmp = minPricePerSqm;
+        minPricePerSqm = maxPricePerSqm;
+        maxPricePerSqm = tmp;
+    }
+
+    const roundPrice = (v) => (v === null ? null : Math.round(v / 1000) * 1000);
+    const roundSqm = (v) => (v === null ? null : Math.round(v));
+    minPrice = roundPrice(minPrice);
+    avgPrice = roundPrice(avgPrice);
+    maxPrice = roundPrice(maxPrice);
+    minPricePerSqm = roundSqm(minPricePerSqm);
+    avgPricePerSqm = roundSqm(avgPricePerSqm);
+    maxPricePerSqm = roundSqm(maxPricePerSqm);
 
     // ✅ yeni alanlar (grafik ve rapor zenginleştirme)
     const expectedSaleDays = clampNum(json?.expectedSaleDays, 7, 365);
@@ -96,6 +162,8 @@ function normalizePriceIndex(json, areaHint /* netArea || grossArea */) {
         rationale,
         assumptions,
         missingData,
+        marketProjection: normalizeMarketProjection(json?.marketProjection),
+        regionalStats: normalizeRegionalStats(json?.regionalStats),
     };
 }
 

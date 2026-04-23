@@ -1,11 +1,12 @@
 const prisma = require("../prisma");
+const { badRequest, notFound } = require("../utils/errors");
 
 exports.upload = async (req, res) => {
     const { type, reportId, userId, order } = req.body || {};
     const file = req.file;
 
-    if (!file) return res.status(400).json({ error: "file required (field name: file)" });
-    if (!type) return res.status(400).json({ error: "type required" });
+    if (!file) throw badRequest("Dosya seçmeniz gerekiyor.", "file");
+    if (!type) throw badRequest("Dosya türü belirtilmedi.", "type");
 
     const media = await prisma.media.create({
         data: {
@@ -37,7 +38,7 @@ exports.deleteById = async (req, res) => {
     const id = req.params.id;
 
     const exists = await prisma.media.findUnique({ where: { id } });
-    if (!exists) return res.status(404).json({ error: "Not found" });
+    if (!exists) throw notFound("Dosya bulunamadı.");
 
     await prisma.media.delete({ where: { id } });
     res.json({ ok: true });

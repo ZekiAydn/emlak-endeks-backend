@@ -40,7 +40,7 @@ async function textToJson({ apiKey, modelName, prompt, input, temperature = 0 })
         ],
         generationConfig: {
             temperature,
-            maxOutputTokens: 2048
+            maxOutputTokens: 4096
         }
     };
 

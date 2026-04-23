@@ -1,6 +1,17 @@
 const prisma = require("../prisma");
 const bcrypt = require("bcryptjs");
 const { cookieName, signToken } = require("../auth/jwt");
+const {
+    normalizeUsername,
+    normalizeEmail,
+    validateUsername,
+    validateEmail,
+    validatePassword,
+    findUserByUsernameOrEmail,
+    findIdentityConflict,
+    publicUserSelect,
+} = require("../utils/authInput");
+const { badRequest, conflict, forbidden, unauthorized } = require("../utils/errors");
 
 function setAuthCookie(res, token) {
     res.cookie(cookieName(), token, {
@@ -13,55 +24,94 @@ function setAuthCookie(res, token) {
 }
 
 exports.register = async (req, res) => {
-    if (req.user?.role !== "ADMIN") {
-        return res.status(403).json({ error: "Only ADMIN can create users" });
+    const {
+        username: rawUsername,
+        email: rawEmail,
+        password,
+        rePassword,
+        passwordConfirm,
+        confirmPassword,
+        adminCode,
+        fullName,
+    } = req.body || {};
+
+    const expectedAdminCode = process.env.ADMIN_REGISTER_CODE || "123456";
+    if (String(adminCode || "").trim() !== expectedAdminCode) {
+        throw forbidden("Admin kodu hatalı.");
     }
 
-    const { username, password, fullName, phone, email, role } = req.body || {};
+    const username = normalizeUsername(rawUsername);
+    const email = normalizeEmail(rawEmail);
+    const repeatedPassword = rePassword ?? passwordConfirm ?? confirmPassword;
 
-    if (!username || !password) return res.status(400).json({ error: "username & password required" });
-    if (String(password).length < 8) return res.status(400).json({ error: "password min 8" });
+    const usernameError = validateUsername(username);
+    if (usernameError) throw badRequest(usernameError, "username");
 
-    const exists = await prisma.user.findUnique({ where: { username } }).catch(() => null);
-    if (exists) return res.status(409).json({ error: "username already exists" });
+    const emailError = validateEmail(email);
+    if (emailError) throw badRequest(emailError, "email");
+
+    const passwordError = validatePassword(password);
+    if (passwordError) throw badRequest(passwordError, "password");
+
+    if (String(password) !== String(repeatedPassword || "")) {
+        throw badRequest("Şifreler eşleşmiyor.", "rePassword");
+    }
+
+    const exists = await findIdentityConflict(prisma, { username, email });
+    if (exists?.username === username) throw conflict("Bu kullanıcı adı zaten kullanılıyor.", "username");
+    if (exists?.email === email) throw conflict("Bu e-posta adresi zaten kullanılıyor.", "email");
+    if (exists) throw conflict("Bu kullanıcı zaten mevcut.");
 
     const passwordHash = await bcrypt.hash(String(password), 10);
 
     const user = await prisma.user.create({
         data: {
             username,
+            email,
             passwordHash,
-            role: "AGENT",
+            role: "ADMIN",
             fullName: fullName || username,
-            phone: phone || null,
-            email: email || null,
             about: ""
         },
-        select: { id: true, username: true, role: true, fullName: true }
+        select: publicUserSelect()
     });
+
+    const token = signToken({ userId: user.id, username: user.username, email: user.email, role: user.role });
+    setAuthCookie(res, token);
 
     return res.json({ ok: true, user });
 };
 
 exports.login = async (req, res) => {
-    const { username, password } = req.body || {};
-    if (!username || !password) return res.status(400).json({ error: "username & password required" });
+    const { identifier, username, email, password } = req.body || {};
+    const login = identifier || username || email;
+    if (!login || !password) throw badRequest("Kullanıcı adı/e-posta ve şifre gerekli.");
 
-    const user = await prisma.user.findUnique({ where: { username } });
-    if (!user || !user.isActive) return res.status(401).json({ error: "Unauthorized" });
+    const user = await findUserByUsernameOrEmail(prisma, login);
+    if (!user || !user.isActive) throw unauthorized("Kullanıcı adı/e-posta veya şifre hatalı.");
 
     const ok = await bcrypt.compare(String(password), user.passwordHash);
-    if (!ok) return res.status(401).json({ error: "Unauthorized" });
+    if (!ok) throw unauthorized("Kullanıcı adı/e-posta veya şifre hatalı.");
 
     await prisma.user.update({
         where: { id: user.id },
         data: { lastLoginAt: new Date() }
     });
 
-    const token = signToken({ userId: user.id, username: user.username, role: user.role });
+    const token = signToken({ userId: user.id, username: user.username, email: user.email, role: user.role });
 
     setAuthCookie(res, token);
-    return res.json({ ok: true, user: { id: user.id, username: user.username, role: user.role, fullName: user.fullName } });
+    return res.json({
+        ok: true,
+        user: {
+            id: user.id,
+            username: user.username,
+            email: user.email,
+            role: user.role,
+            fullName: user.fullName,
+            isActive: user.isActive,
+        },
+    });
 };
 
 exports.logout = async (req, res) => {

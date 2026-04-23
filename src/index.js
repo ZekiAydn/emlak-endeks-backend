@@ -5,6 +5,7 @@ const helmet = require("helmet");
 const cookieParser = require("cookie-parser");
 
 const routes = require("./routes");
+const { errorHandler } = require("./utils/errors");
 
 const app = express();
 
@@ -32,6 +33,7 @@ app.use(cors({
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
 app.use(routes);
+app.use(errorHandler);
 
 const port = Number(process.env.PORT || 4000);
 app.listen(port, () => console.log(`API running on :${port}`));
