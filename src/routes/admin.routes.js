@@ -1,11 +1,11 @@
-const router = require("express").Router();
-const prisma = require("../prisma");
-const bcrypt = require("bcryptjs");
-const authRequired = require("../middleware/authRequired");
-const requireRole = require("../middleware/requireRole");
-const { badRequest, conflict, notFound } = require("../utils/errors");
-const { PLAN_DEFINITIONS } = require("../services/subscriptionPlans");
-const {
+import { Router } from "express";
+import prisma from "../prisma.js";
+import bcrypt from "bcryptjs";
+import authRequired from "../middleware/authRequired.js";
+import requireRole from "../middleware/requireRole.js";
+import { badRequest, conflict, notFound } from "../utils/errors.js";
+import { PLAN_DEFINITIONS } from "../services/subscriptionPlans.js";
+import {
     normalizeUsername,
     normalizeOptionalEmail,
     normalizeOptionalPhone,
@@ -15,7 +15,9 @@ const {
     validatePassword,
     findIdentityConflict,
     publicUserSelect,
-} = require("../utils/authInput");
+} from "../utils/authInput.js";
+
+const router = Router();
 
 router.use(authRequired, requireRole("ADMIN"));
 
@@ -209,4 +211,4 @@ router.delete("/users/:id", async (req, res) => {
     res.json({ ok: true });
 });
 
-module.exports = router;
+export default router;

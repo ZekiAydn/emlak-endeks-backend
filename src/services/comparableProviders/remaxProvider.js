@@ -1,4 +1,4 @@
-const { fetchRemaxComparableBundle } = require("../remaxComparables");
+import { fetchRemaxComparableBundle } from "../remaxComparables.js";
 
 async function fetchRemaxProviderBundle(criteria = {}, options = {}) {
     const bundle = await fetchRemaxComparableBundle(criteria, options);
@@ -14,6 +14,6 @@ async function fetchRemaxProviderBundle(criteria = {}, options = {}) {
     };
 }
 
-module.exports = {
+export {
     fetchRemaxProviderBundle,
 };

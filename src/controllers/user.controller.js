@@ -1,13 +1,13 @@
-const prisma = require("../prisma");
-const { normalizeOptionalEmail, normalizePhone, validateEmail, validatePhone, findIdentityConflict } = require("../utils/authInput");
-const { PLAN_DEFINITIONS, getSubscriptionSummary } = require("../services/subscriptionPlans");
-const { badRequest, conflict, forbidden, notFound, unauthorized } = require("../utils/errors");
+import prisma from "../prisma.js";
+import { normalizeOptionalEmail, normalizePhone, validateEmail, validatePhone, findIdentityConflict } from "../utils/authInput.js";
+import { PLAN_DEFINITIONS, getSubscriptionSummary } from "../services/subscriptionPlans.js";
+import { badRequest, conflict, forbidden, notFound, unauthorized } from "../utils/errors.js";
 
 const mediaSelect = {
     id: true, type: true, mime: true, filename: true, order: true, createdAt: true, userId: true, reportId: true
 };
 
-exports.getMe = async (req, res) => {
+export const getMe = async (req, res) => {
     const userId = req.user?.userId;
     if (!userId) throw unauthorized("Oturum süreniz dolmuş. Lütfen tekrar giriş yapın.");
 
@@ -24,7 +24,7 @@ exports.getMe = async (req, res) => {
     res.json(safeUser);
 };
 
-exports.updateMe = async (req, res) => {
+export const updateMe = async (req, res) => {
     const userId = req.user.userId;
 
     const { fullName, phone, email, about } = req.body || {};
@@ -60,7 +60,7 @@ exports.updateMe = async (req, res) => {
     res.json(updated);
 };
 
-exports.updateSubscription = async (req, res) => {
+export const updateSubscription = async (req, res) => {
     const userId = req.user.userId;
     const plan = String(req.body?.plan || "").trim().toUpperCase();
 

@@ -1,6 +1,6 @@
-const { forbidden } = require("../utils/errors");
+import { forbidden } from "../utils/errors.js";
 
-module.exports = function requireRole(...roles) {
+export default function requireRole(...roles) {
     return (req, res, next) => {
         const r = req.user?.role;
         if (!r || !roles.includes(r)) {

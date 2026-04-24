@@ -1,9 +1,11 @@
-const router = require("express").Router();
-const c = require("../controllers/user.controller");
-const authRequired = require("../middleware/authRequired");
+import { Router } from "express";
+import * as c from "../controllers/user.controller.js";
+import authRequired from "../middleware/authRequired.js";
+
+const router = Router();
 
 router.get("/me", authRequired, c.getMe);
 router.put("/me", authRequired, c.updateMe);
 router.put("/me/subscription", authRequired, c.updateSubscription);
 
-module.exports = router;
+export default router;

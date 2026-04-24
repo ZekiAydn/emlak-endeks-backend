@@ -256,7 +256,7 @@ async function resolveHepsiemlakUrls(criteria = {}, sortOptions = {}) {
     }
 }
 
-module.exports = {
+export {
     resolveHepsiemlakUrls,
     buildHepsiemlakCandidateUrls,
     buildSerpQuery,

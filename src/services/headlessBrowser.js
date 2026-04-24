@@ -1,4 +1,4 @@
-const { chromium: playwrightChromium } = require("playwright");
+import { chromium as playwrightChromium } from "playwright";
 
 let browserPromise = null;
 
@@ -35,7 +35,7 @@ async function buildLaunchOptions() {
     }
 
     if (isServerlessRuntime()) {
-        const chromium = require("@sparticuz/chromium");
+        const { default: chromium } = await import("@sparticuz/chromium");
         for (const arg of chromium.args || []) args.add(arg);
 
         return {
@@ -72,7 +72,7 @@ async function getBrowser() {
     return browser;
 }
 
-module.exports = {
+export {
     buildLaunchOptions,
     getBrowser,
     isServerlessRuntime,

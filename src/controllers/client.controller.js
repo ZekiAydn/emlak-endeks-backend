@@ -1,5 +1,5 @@
-const prisma = require("../prisma");
-const { badRequest, notFound } = require("../utils/errors");
+import prisma from "../prisma.js";
+import { badRequest, notFound } from "../utils/errors.js";
 
 function cleanString(value) {
     return String(value || "").trim();
@@ -82,7 +82,7 @@ async function findPropertyForUser(userId, id) {
     return property;
 }
 
-exports.listClients = async (req, res) => {
+export const listClients = async (req, res) => {
     const userId = req.user.userId;
     const q = cleanString(req.query.q);
     const take = Math.min(Number(req.query.take || 50), 100);
@@ -112,7 +112,7 @@ exports.listClients = async (req, res) => {
     res.json(clients);
 };
 
-exports.createClient = async (req, res) => {
+export const createClient = async (req, res) => {
     const userId = req.user.userId;
     const data = clientData(req.body);
     if (!data.fullName) throw badRequest("Müşteri adı soyadı gerekli.", "fullName");
@@ -121,7 +121,7 @@ exports.createClient = async (req, res) => {
     res.status(201).json(client);
 };
 
-exports.getClient = async (req, res) => {
+export const getClient = async (req, res) => {
     const userId = req.user.userId;
     const client = await prisma.client.findFirst({
         where: { id: req.params.id, userId },
@@ -138,7 +138,7 @@ exports.getClient = async (req, res) => {
     res.json(client);
 };
 
-exports.updateClient = async (req, res) => {
+export const updateClient = async (req, res) => {
     const userId = req.user.userId;
     await findClientForUser(userId, req.params.id);
 
@@ -153,14 +153,14 @@ exports.updateClient = async (req, res) => {
     res.json(client);
 };
 
-exports.deleteClient = async (req, res) => {
+export const deleteClient = async (req, res) => {
     const userId = req.user.userId;
     await findClientForUser(userId, req.params.id);
     await prisma.client.delete({ where: { id: req.params.id } });
     res.json({ ok: true });
 };
 
-exports.listClientProperties = async (req, res) => {
+export const listClientProperties = async (req, res) => {
     const userId = req.user.userId;
     await findClientForUser(userId, req.params.id);
 
@@ -173,7 +173,7 @@ exports.listClientProperties = async (req, res) => {
     res.json(properties);
 };
 
-exports.createClientProperty = async (req, res) => {
+export const createClientProperty = async (req, res) => {
     const userId = req.user.userId;
     const client = await findClientForUser(userId, req.params.id);
     const data = propertyData(req.body);
@@ -187,12 +187,12 @@ exports.createClientProperty = async (req, res) => {
     res.status(201).json(property);
 };
 
-exports.getProperty = async (req, res) => {
+export const getProperty = async (req, res) => {
     const property = await findPropertyForUser(req.user.userId, req.params.id);
     res.json(property);
 };
 
-exports.updateProperty = async (req, res) => {
+export const updateProperty = async (req, res) => {
     const userId = req.user.userId;
     await findPropertyForUser(userId, req.params.id);
     const data = propertyData(req.body);
@@ -207,7 +207,7 @@ exports.updateProperty = async (req, res) => {
     res.json(property);
 };
 
-exports.deleteProperty = async (req, res) => {
+export const deleteProperty = async (req, res) => {
     const userId = req.user.userId;
     await findPropertyForUser(userId, req.params.id);
     await prisma.property.delete({ where: { id: req.params.id } });

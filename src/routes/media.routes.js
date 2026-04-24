@@ -1,7 +1,9 @@
-const router = require("express").Router();
-const multer = require("multer");
-const c = require("../controllers/media.controller");
-const authRequired = require("../middleware/authRequired");
+import { Router } from "express";
+import multer from "multer";
+import * as c from "../controllers/media.controller.js";
+import authRequired from "../middleware/authRequired.js";
+
+const router = Router();
 
 const upload = multer({
     storage: multer.memoryStorage(),
@@ -12,4 +14,4 @@ router.post("/media/upload",authRequired, upload.single("file"), c.upload);
 router.get("/media/:id",authRequired, c.getById);
 router.delete("/media/:id",authRequired, c.deleteById);
 
-module.exports = router;
+export default router;

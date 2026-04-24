@@ -1,7 +1,7 @@
-const prisma = require("../prisma");
-const { badRequest, notFound } = require("../utils/errors");
+import prisma from "../prisma.js";
+import { badRequest, notFound } from "../utils/errors.js";
 
-exports.upload = async (req, res) => {
+export const upload = async (req, res) => {
     const { type, reportId, userId, order } = req.body || {};
     const file = req.file;
 
@@ -23,7 +23,7 @@ exports.upload = async (req, res) => {
     res.json({ id: media.id, type: media.type });
 };
 
-exports.getById = async (req, res) => {
+export const getById = async (req, res) => {
     const id = req.params.id;
 
     const media = await prisma.media.findUnique({ where: { id } });
@@ -34,7 +34,7 @@ exports.getById = async (req, res) => {
     res.send(Buffer.from(media.data));
 };
 
-exports.deleteById = async (req, res) => {
+export const deleteById = async (req, res) => {
     const id = req.params.id;
 
     const exists = await prisma.media.findUnique({ where: { id } });

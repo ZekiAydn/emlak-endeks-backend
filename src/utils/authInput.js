@@ -107,7 +107,7 @@ function publicUserSelect() {
     };
 }
 
-module.exports = {
+export {
     normalizeUsername,
     normalizeEmail,
     normalizeOptionalEmail,
@@ -118,7 +118,7 @@ module.exports = {
     validatePhone,
     validatePassword,
     findUserByIdentifier,
-    findUserByUsernameOrEmail: findUserByIdentifier,
+    findUserByIdentifier as findUserByUsernameOrEmail,
     findIdentityConflict,
     publicUserSelect,
 };

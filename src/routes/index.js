@@ -1,11 +1,20 @@
-const router = require("express").Router();
+import { Router } from "express";
+import authRoutes from "./auth.routes.js";
+import debugRoutes from "./debug.routes.js";
+import adminRoutes from "./admin.routes.js";
+import userRoutes from "./user.routes.js";
+import clientRoutes from "./client.routes.js";
+import reportRoutes from "./report.routes.js";
+import mediaRoutes from "./media.routes.js";
 
-router.use(require("./auth.routes"));
-router.use(require("./debug.routes"));
-router.use("/admin", require("./admin.routes")); // ✅ sadece /admin/* için
-router.use(require("./user.routes"));
-router.use(require("./client.routes"));
-router.use(require("./report.routes"));
-router.use(require("./media.routes"));
+const router = Router();
 
-module.exports = router;
+router.use(authRoutes);
+router.use(debugRoutes);
+router.use("/admin", adminRoutes); // ✅ sadece /admin/* için
+router.use(userRoutes);
+router.use(clientRoutes);
+router.use(reportRoutes);
+router.use(mediaRoutes);
+
+export default router;

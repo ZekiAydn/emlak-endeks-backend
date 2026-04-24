@@ -1,6 +1,8 @@
-const router = require("express").Router();
-const c = require("../controllers/client.controller");
-const authRequired = require("../middleware/authRequired");
+import { Router } from "express";
+import * as c from "../controllers/client.controller.js";
+import authRequired from "../middleware/authRequired.js";
+
+const router = Router();
 
 router.use(authRequired);
 
@@ -16,4 +18,4 @@ router.get("/properties/:id", c.getProperty);
 router.put("/properties/:id", c.updateProperty);
 router.delete("/properties/:id", c.deleteProperty);
 
-module.exports = router;
+export default router;

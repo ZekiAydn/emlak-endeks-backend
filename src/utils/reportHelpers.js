@@ -129,7 +129,7 @@ function buildAiNote(n) {
 }
 
 
-module.exports = {
+export {
     pickDefined,
     normalizeTextArray,
     sanitizePropertyDetails,

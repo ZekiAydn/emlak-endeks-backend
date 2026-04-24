@@ -62,4 +62,4 @@ async function textToJson({ apiKey, modelName, prompt, input, temperature = 0 })
     return { rawText, json };
 }
 
-module.exports = { textToJson };
+export { textToJson };

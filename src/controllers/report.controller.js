@@ -1,19 +1,19 @@
-const prisma = require("../prisma");
-const { priceIndexPrompt } = require("../ai/prompts/priceIndexPrompt");
-const { normalizePriceIndex } = require("../ai/normalize/priceIndexNormalize");
-const { applyFallbackPriceEstimate, ensureProjectionSections } = require("../ai/fallback/priceEstimate");
-const { textToJson } = require("../services/geminiTextToJson");
-const { fetchParcelLookup } = require("../services/tkgmParcel");
-const { captureParcelMapImage, buildParcelHashUrl } = require("../services/tkgmParcelScreenshot");
-const { assertCanCreateReport } = require("../services/subscriptionPlans");
-const {
+import prisma from "../prisma.js";
+import { priceIndexPrompt } from "../ai/prompts/priceIndexPrompt.js";
+import { normalizePriceIndex } from "../ai/normalize/priceIndexNormalize.js";
+import { applyFallbackPriceEstimate, ensureProjectionSections } from "../ai/fallback/priceEstimate.js";
+import { textToJson } from "../services/geminiTextToJson.js";
+import { fetchParcelLookup } from "../services/tkgmParcel.js";
+import { captureParcelMapImage, buildParcelHashUrl } from "../services/tkgmParcelScreenshot.js";
+import { assertCanCreateReport } from "../services/subscriptionPlans.js";
+import {
     sanitizePricingAnalysis,
     sanitizeBuildingDetails,
     sanitizePropertyDetails,
     buildAiNote,
-} = require("../utils/reportHelpers");
-const { badRequest, notFound } = require("../utils/errors");
-const { fetchComparableBundle } = require("../services/comparableProviders");
+} from "../utils/reportHelpers.js";
+import { badRequest, notFound } from "../utils/errors.js";
+import { fetchComparableBundle } from "../services/comparableProviders/index.js";
 
 
 const mediaSelect = {
@@ -110,7 +110,7 @@ async function getProperty(userId, id) {
     return property;
 }
 
-async function getReport(userId, id) {
+async function findReport(userId, id) {
     const report = await prisma.report.findFirst({
         where: { id, userId },
         include: reportInclude,
@@ -197,7 +197,7 @@ async function replaceReportMedia(reportId, { type, buffer, mime, filename }) {
     });
 }
 
-exports.createReport = async (req, res) => {
+export const createReport = async (req, res) => {
     const userId = req.user.userId;
     const body = req.body || {};
 
@@ -249,7 +249,7 @@ exports.createReport = async (req, res) => {
     res.status(201).json(report);
 };
 
-exports.listReports = async (req, res) => {
+export const listReports = async (req, res) => {
     const userId = req.user.userId;
     const take = Math.min(Number(req.query.take || 50), 100);
     const skip = Number(req.query.skip || 0);
@@ -269,11 +269,11 @@ exports.listReports = async (req, res) => {
     res.json(list);
 };
 
-exports.deleteReport = async (req, res) => {
+export const deleteReport = async (req, res) => {
     const userId = req.user.userId;
     const id = req.params.id;
 
-    await getReport(userId, id);
+    await findReport(userId, id);
 
     await prisma.$transaction([
         prisma.media.deleteMany({ where: { reportId: id } }),
@@ -286,17 +286,17 @@ exports.deleteReport = async (req, res) => {
     res.json({ ok: true });
 };
 
-exports.getReport = async (req, res) => {
-    const report = await getReport(req.user.userId, req.params.id);
+export const getReport = async (req, res) => {
+    const report = await findReport(req.user.userId, req.params.id);
     res.json(report);
 };
 
-exports.updateReport = async (req, res) => {
+export const updateReport = async (req, res) => {
     const userId = req.user.userId;
     const id = req.params.id;
     const body = req.body || {};
 
-    const existingReport = await getReport(userId, id);
+    const existingReport = await findReport(userId, id);
 
     const data = {};
     let property = null;
@@ -344,7 +344,7 @@ exports.updateReport = async (req, res) => {
     res.json(updated);
 };
 
-exports.autofillExternalData = async (req, res) => {
+export const autofillExternalData = async (req, res) => {
     const userId = req.user.userId;
     const reportId = req.params.id;
     const body = req.body || {};
@@ -531,7 +531,7 @@ exports.autofillExternalData = async (req, res) => {
     });
 };
 
-exports.aiPriceIndex = async (req, res) => {
+export const aiPriceIndex = async (req, res) => {
     const userId = req.user.userId;
     const reportId = req.params.id;
 

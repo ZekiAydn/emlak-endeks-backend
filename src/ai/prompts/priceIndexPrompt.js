@@ -100,4 +100,4 @@ TUTARLILIK:
 - Adres/ilçe/mahalle hiç yoksa marketProjection ve regionalStats null olabilir.
 `;
 }
-module.exports = { priceIndexPrompt };
+export { priceIndexPrompt };

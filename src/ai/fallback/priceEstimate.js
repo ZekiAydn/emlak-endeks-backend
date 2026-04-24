@@ -202,7 +202,7 @@ function ensureProjectionSections(normalized, context = {}) {
     return normalized;
 }
 
-module.exports = {
+export {
     buildFallbackEstimate,
     applyFallbackPriceEstimate,
     ensureProjectionSections,

@@ -1,14 +1,18 @@
-require("dotenv").config();
-const express = require("express");
-const cors = require("cors");
-const helmet = require("helmet");
-const cookieParser = require("cookie-parser");
+import dotenv from "dotenv";
+dotenv.config();
+import express from "express";
+import cors from "cors";
+import helmet from "helmet";
+import cookieParser from "cookie-parser";
+import { fileURLToPath } from "node:url";
 
-const routes = require("./routes");
-const { errorHandler } = require("./utils/errors");
+import routes from "./routes/index.js";
+import { errorHandler } from "./utils/errors.js";
+import { buildLaunchOptions, isServerlessRuntime } from "./services/headlessBrowser.js";
 
 const app = express();
 
+app.set("trust proxy", 1);
 app.use(helmet());
 app.use(express.json());
 app.use(cookieParser());
@@ -33,8 +37,6 @@ app.use(cors({
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
 app.get("/health/runtime", async (_req, res) => {
-    const { buildLaunchOptions, isServerlessRuntime } = require("./services/headlessBrowser");
-
     let browser = null;
     try {
         const options = await buildLaunchOptions();
@@ -62,9 +64,9 @@ app.get("/health/runtime", async (_req, res) => {
 app.use(routes);
 app.use(errorHandler);
 
-if (require.main === module) {
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     const port = Number(process.env.PORT || 4000);
     app.listen(port, () => console.log(`API running on :${port}`));
 }
 
-module.exports = app;
+export default app;

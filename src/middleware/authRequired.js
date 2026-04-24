@@ -1,7 +1,7 @@
-const { cookieName, verifyToken } = require("../auth/jwt");
-const { unauthorized } = require("../utils/errors");
+import { cookieName, verifyToken } from "../auth/jwt.js";
+import { unauthorized } from "../utils/errors.js";
 
-module.exports = function authRequired(req, res, next) {
+export default function authRequired(req, res, next) {
     try {
         const name = cookieName();
         const fromCookie = req.cookies?.[name];

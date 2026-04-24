@@ -1,4 +1,4 @@
-const { paymentRequired } = require("../utils/errors");
+import { paymentRequired } from "../utils/errors.js";
 
 const PLAN_DEFINITIONS = {
     FREE: {
@@ -112,7 +112,7 @@ async function assertCanCreateReport(prisma, userId) {
     }
 }
 
-module.exports = {
+export {
     DEFAULT_PLAN,
     PLAN_DEFINITIONS,
     assertCanCreateReport,

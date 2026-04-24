@@ -1,4 +1,4 @@
-const { getBrowser } = require("./headlessBrowser");
+import { getBrowser } from "./headlessBrowser.js";
 
 function buildParcelHashUrl(parcelLookup) {
     const neighborhoodId = parcelLookup?.neighborhoodId;
@@ -67,7 +67,7 @@ async function captureParcelMapImage(parcelLookup) {
     }
 }
 
-module.exports = {
+export {
     buildParcelHashUrl,
     captureParcelMapImage,
 };

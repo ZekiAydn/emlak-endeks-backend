@@ -1,16 +1,16 @@
-const {
+import {
     buildHepsiemlakCandidateUrls,
     buildSerpQuery,
     resolveHepsiemlakUrls,
     searchWithSerpApi,
-} = require("../services/comparableProviders/hepsiemlakUrlResolver");
-const {
+} from "../services/comparableProviders/hepsiemlakUrlResolver.js";
+import {
     fetchHtml,
     parseSearchPage,
-} = require("../services/comparableProviders/hepsiemlakHtmlProvider");
-const { fetchComparableBundle } = require("../services/comparableProviders");
+} from "../services/comparableProviders/hepsiemlakHtmlProvider.js";
+import { fetchComparableBundle } from "../services/comparableProviders/index.js";
 
-function debugEnabled(req, res, next) {
+function debugEnabledMiddleware(req, res, next) {
     if (process.env.DEBUG_ENDPOINTS_ENABLED !== "true") {
         return res.status(404).json({ error: "Not found" });
     }
@@ -66,9 +66,9 @@ async function trySerp(criteria) {
     }
 }
 
-exports.debugEnabled = debugEnabled;
+export const debugEnabled = debugEnabledMiddleware;
 
-exports.resolveComparables = async (req, res) => {
+export const resolveComparables = async (req, res) => {
     const criteria = criteriaFromQuery(req.query);
     const candidatesDefault = buildHepsiemlakCandidateUrls(criteria);
     const candidatesLow = buildHepsiemlakCandidateUrls(criteria, sortOptions("low"));
@@ -91,7 +91,7 @@ exports.resolveComparables = async (req, res) => {
     });
 };
 
-exports.fetchComparables = async (req, res) => {
+export const fetchComparables = async (req, res) => {
     const criteria = criteriaFromQuery(req.query);
     const defaultUrls = await resolveHepsiemlakUrls(criteria);
     const lowUrls = buildHepsiemlakCandidateUrls(criteria, sortOptions("low"));
@@ -166,7 +166,7 @@ exports.fetchComparables = async (req, res) => {
     });
 };
 
-exports.runComparables = async (req, res) => {
+export const runComparables = async (req, res) => {
     const criteria = criteriaFromQuery(req.query);
     const bundle = await fetchComparableBundle(criteria, {});
     const comparables = Array.isArray(bundle?.comparables) ? bundle.comparables : [];

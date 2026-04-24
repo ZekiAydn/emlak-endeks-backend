@@ -1,5 +1,5 @@
-const { fetchRemaxProviderBundle } = require("./remaxProvider");
-const { fetchHepsiemlakHtmlComparableBundle } = require("./hepsiemlakHtmlProvider");
+import { fetchRemaxProviderBundle } from "./remaxProvider.js";
+import { fetchHepsiemlakHtmlComparableBundle } from "./hepsiemlakHtmlProvider.js";
 
 const PROVIDERS = {
     HEPSIEMLAK_HTML: {
@@ -94,7 +94,7 @@ async function fetchComparableBundle(criteria = {}, options = {}) {
     };
 }
 
-module.exports = {
+export {
     fetchComparableBundle,
     selectedProviders,
 };

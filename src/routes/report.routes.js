@@ -1,7 +1,8 @@
-const router = require("express").Router();
-const c = require("../controllers/report.controller");
+import { Router } from "express";
+import * as c from "../controllers/report.controller.js";
+import authRequired from "../middleware/authRequired.js";
 
-const authRequired = require("../middleware/authRequired");
+const router = Router();
 
 router.post("/reports",authRequired, c.createReport);
 router.get("/reports",authRequired, c.listReports);
@@ -11,4 +12,4 @@ router.delete("/reports/:id",authRequired, c.deleteReport);
 router.post("/reports/:id/external-data",authRequired, c.autofillExternalData);
 router.post("/reports/:id/ai/price-index",authRequired, c.aiPriceIndex);
 
-module.exports = router;
+export default router;

@@ -242,6 +242,6 @@ async function fetchParcelLookup({ city, district, neighborhood, blockNo, parcel
     });
 }
 
-module.exports = {
+export {
     fetchParcelLookup,
 };

@@ -1,4 +1,4 @@
-const jwt = require("jsonwebtoken");
+import jwt from "jsonwebtoken";
 
 const COOKIE_NAME = "emlakskor_token";
 
@@ -20,4 +20,4 @@ function verifyToken(token) {
     return jwt.verify(token, secret);
 }
 
-module.exports = { cookieName, signToken, verifyToken };
+export { cookieName, signToken, verifyToken };

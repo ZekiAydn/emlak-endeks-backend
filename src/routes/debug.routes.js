@@ -1,9 +1,11 @@
-const router = require("express").Router();
-const c = require("../controllers/debug.controller");
+import { Router } from "express";
+import * as c from "../controllers/debug.controller.js";
+
+const router = Router();
 
 router.use("/debug", c.debugEnabled);
 router.get("/debug/comparables/resolve", c.resolveComparables);
 router.get("/debug/comparables/fetch", c.fetchComparables);
 router.get("/debug/comparables/run", c.runComparables);
 
-module.exports = router;
+export default router;

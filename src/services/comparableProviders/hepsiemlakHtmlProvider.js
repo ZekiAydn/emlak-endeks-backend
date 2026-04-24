@@ -1,5 +1,5 @@
-const cheerio = require("cheerio");
-const { resolveHepsiemlakUrls, withSort } = require("./hepsiemlakUrlResolver");
+import * as cheerio from "cheerio";
+import { resolveHepsiemlakUrls, withSort } from "./hepsiemlakUrlResolver.js";
 
 const HEPSIEMLAK_BASE_URL = "https://www.hepsiemlak.com";
 
@@ -920,7 +920,7 @@ async function fetchHepsiemlakHtmlComparableBundle(criteria = {}, options = {}) 
     };
 }
 
-module.exports = {
+export {
     fetchHepsiemlakHtmlComparableBundle,
     fetchHtml,
     parseSearchPage,

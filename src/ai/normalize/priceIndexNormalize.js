@@ -167,4 +167,4 @@ function normalizePriceIndex(json, areaHint /* netArea || grossArea */) {
     };
 }
 
-module.exports = { normalizePriceIndex };
+export { normalizePriceIndex };

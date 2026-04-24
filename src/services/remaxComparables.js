@@ -1,5 +1,5 @@
 const REMAX_BASE_URL = "https://remax.com.tr";
-const { getBrowser } = require("./headlessBrowser");
+import { getBrowser } from "./headlessBrowser.js";
 
 const REQUEST_HEADERS = {
     accept:
@@ -818,6 +818,6 @@ async function fetchRemaxComparableBundle(criteria = {}, options = {}) {
     };
 }
 
-module.exports = {
+export {
     fetchRemaxComparableBundle,
 };

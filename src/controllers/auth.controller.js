@@ -1,7 +1,7 @@
-const prisma = require("../prisma");
-const bcrypt = require("bcryptjs");
-const { cookieName, signToken } = require("../auth/jwt");
-const {
+import prisma from "../prisma.js";
+import bcrypt from "bcryptjs";
+import { cookieName, signToken } from "../auth/jwt.js";
+import {
     normalizeUsername,
     normalizeOptionalEmail,
     normalizePhone,
@@ -12,20 +12,31 @@ const {
     findUserByIdentifier,
     findIdentityConflict,
     publicUserSelect,
-} = require("../utils/authInput");
-const { badRequest, conflict, forbidden, unauthorized } = require("../utils/errors");
+} from "../utils/authInput.js";
+import { badRequest, conflict, forbidden, unauthorized } from "../utils/errors.js";
+
+function authCookieOptions() {
+    const isProduction = process.env.NODE_ENV === "production";
+    const sameSite = process.env.AUTH_COOKIE_SAME_SITE || (isProduction ? "none" : "lax");
+
+    return {
+        httpOnly: true,
+        sameSite,
+        secure: process.env.AUTH_COOKIE_SECURE
+            ? process.env.AUTH_COOKIE_SECURE === "true"
+            : isProduction,
+        path: "/",
+    };
+}
 
 function setAuthCookie(res, token) {
     res.cookie(cookieName(), token, {
-        httpOnly: true,
-        sameSite: "lax",
-        secure: process.env.NODE_ENV === "production",
-        path: "/",
+        ...authCookieOptions(),
         maxAge: 60 * 60 * 24 * 7 * 1000
     });
 }
 
-exports.register = async (req, res) => {
+export const register = async (req, res) => {
     const {
         username: rawUsername,
         email: rawEmail,
@@ -99,7 +110,7 @@ exports.register = async (req, res) => {
     return res.json({ ok: true, user });
 };
 
-exports.login = async (req, res) => {
+export const login = async (req, res) => {
     const { identifier, username, email, phone, password } = req.body || {};
     const login = identifier || phone || email || username;
     if (!login || !password) throw badRequest("Telefon/e-posta ve şifre gerekli.");
@@ -134,12 +145,7 @@ exports.login = async (req, res) => {
     });
 };
 
-exports.logout = async (req, res) => {
-    res.clearCookie(cookieName(), {
-        httpOnly: true,
-        sameSite: "lax",
-        secure: process.env.NODE_ENV === "production",
-        path: "/"
-    });
+export const logout = async (req, res) => {
+    res.clearCookie(cookieName(), authCookieOptions());
     return res.json({ ok: true });
 };
