@@ -1,5 +1,6 @@
 import { fetchRemaxProviderBundle } from "./remaxProvider.js";
 import { fetchHepsiemlakHtmlComparableBundle } from "./hepsiemlakHtmlProvider.js";
+import { fetchSerpSnippetComparableBundle } from "./serpSnippetProvider.js";
 
 const PROVIDERS = {
     HEPSIEMLAK_HTML: {
@@ -10,10 +11,14 @@ const PROVIDERS = {
         name: "REMAX",
         fetch: fetchRemaxProviderBundle,
     },
+    SERP_SNIPPET: {
+        name: "SERP_SNIPPET",
+        fetch: fetchSerpSnippetComparableBundle,
+    },
 };
 
 function selectedProviders() {
-    const raw = process.env.COMPARABLE_PROVIDERS || "HEPSIEMLAK_HTML,REMAX";
+    const raw = process.env.COMPARABLE_PROVIDERS || "HEPSIEMLAK_HTML,REMAX,SERP_SNIPPET";
 
     return raw
         .split(",")

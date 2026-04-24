@@ -458,6 +458,10 @@ export const autofillExternalData = async (req, res) => {
                       bundle.sourceMeta?.provider === "HEPSIEMLAK_HTML"
                           ? bundle.sourceMeta
                           : report.comparablesJson?.hepsiemlakSource || null,
+                  serpSnippetSource:
+                      bundle.sourceMeta?.provider === "SERP_SNIPPET"
+                          ? bundle.sourceMeta
+                          : report.comparablesJson?.serpSnippetSource || null,
               }
             : {
                   comparables: existingComparables,
@@ -467,11 +471,13 @@ export const autofillExternalData = async (req, res) => {
         externalDataUpdatedAt: new Date().toISOString(),
     };
 
+    let mapMedia = null;
+
     if (parcelLookup) {
         try {
             const mapCapture = await captureParcelMapImage(parcelLookup);
             if (mapCapture?.buffer) {
-                await replaceReportMedia(reportId, {
+                mapMedia = await replaceReportMedia(reportId, {
                     type: "MAP_IMAGE",
                     buffer: mapCapture.buffer,
                     mime: mapCapture.mime,
@@ -527,6 +533,7 @@ export const autofillExternalData = async (req, res) => {
         regionalStats: hasComparables ? bundle?.regionalStats || null : report.regionalStatsJson || null,
         pricingAnalysis: pricingUpdate || report.pricingAnalysis || null,
         sourceMeta: bundle?.sourceMeta || nextComparablesJson.comparableSource || null,
+        mapMedia,
         warnings,
     });
 };

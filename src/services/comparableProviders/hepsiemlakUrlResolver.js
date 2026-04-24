@@ -231,6 +231,36 @@ async function searchWithSerpApi(criteria = {}) {
     return links;
 }
 
+async function searchSerpApiOrganic(query, options = {}) {
+    const apiKey = process.env.SERPAPI_KEY;
+    if (!apiKey) return [];
+
+    const maxResults = Math.min(Number(options.maxResults || process.env.SERPAPI_MAX_RESULTS || 10), 20);
+
+    const url = new URL("https://serpapi.com/search.json");
+    url.searchParams.set("engine", "google");
+    url.searchParams.set("q", query);
+    url.searchParams.set("hl", "tr");
+    url.searchParams.set("gl", "tr");
+    url.searchParams.set("num", String(maxResults));
+    url.searchParams.set("api_key", apiKey);
+
+    console.log("[SERPAPI] organic search", { query, maxResults });
+
+    const response = await fetch(url.toString(), {
+        headers: { accept: "application/json" },
+        cache: "no-store",
+    });
+
+    const json = await response.json().catch(() => null);
+
+    if (!response.ok) {
+        throw new Error(`SerpAPI cevap vermedi (${response.status}): ${JSON.stringify(json).slice(0, 300)}`);
+    }
+
+    return Array.isArray(json?.organic_results) ? json.organic_results : [];
+}
+
 async function resolveHepsiemlakUrls(criteria = {}, sortOptions = {}) {
     const mode = process.env.HEPSIEMLAK_URL_RESOLVER_MODE || "CANDIDATES_ONLY";
     const candidates = buildHepsiemlakCandidateUrls(criteria, sortOptions);
@@ -261,6 +291,7 @@ export {
     buildHepsiemlakCandidateUrls,
     buildSerpQuery,
     searchWithSerpApi,
+    searchSerpApiOrganic,
     normalizeSerpUrl,
     isUsefulHepsiemlakUrl,
     withSort,
