@@ -18,6 +18,7 @@ import { badRequest, conflict, forbidden, unauthorized } from "../utils/errors.j
 function authCookieOptions() {
     const isProduction = process.env.NODE_ENV === "production";
     const sameSite = process.env.AUTH_COOKIE_SAME_SITE || (isProduction ? "none" : "lax");
+    const domain = String(process.env.AUTH_COOKIE_DOMAIN || "").trim();
 
     return {
         httpOnly: true,
@@ -26,6 +27,7 @@ function authCookieOptions() {
             ? process.env.AUTH_COOKIE_SECURE === "true"
             : isProduction,
         path: "/",
+        ...(domain ? { domain } : {}),
     };
 }
 
