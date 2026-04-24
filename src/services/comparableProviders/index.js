@@ -19,11 +19,19 @@ const PROVIDERS = {
 
 function selectedProviders() {
     const raw = process.env.COMPARABLE_PROVIDERS || "HEPSIEMLAK_HTML,REMAX,SERP_SNIPPET";
-
-    return raw
+    const keys = raw
         .split(",")
         .map((item) => item.trim().toUpperCase())
-        .filter(Boolean)
+        .filter(Boolean);
+
+    if (
+        process.env.COMPARABLE_SERP_SNIPPET_FALLBACK_ENABLED !== "false" &&
+        !keys.includes("SERP_SNIPPET")
+    ) {
+        keys.push("SERP_SNIPPET");
+    }
+
+    return keys
         .map((key) => PROVIDERS[key])
         .filter(Boolean);
 }
