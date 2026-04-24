@@ -109,7 +109,7 @@ export const register = async (req, res) => {
     const token = signToken({ userId: user.id, username: user.username, email: user.email, role: user.role });
     setAuthCookie(res, token);
 
-    return res.json({ ok: true, user });
+    return res.json({ ok: true, user, token });
 };
 
 export const login = async (req, res) => {
@@ -133,6 +133,7 @@ export const login = async (req, res) => {
     setAuthCookie(res, token);
     return res.json({
         ok: true,
+        token,
         user: {
             id: user.id,
             username: user.username,
