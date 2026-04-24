@@ -9,9 +9,9 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
+    "postinstall": "npx playwright install --with-deps chromium",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy",
-    "postinstall": "prisma generate",
     "seed": "node prisma/seed.cjs"
   },
   "repository": {
