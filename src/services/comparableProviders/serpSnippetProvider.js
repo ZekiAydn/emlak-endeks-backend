@@ -232,7 +232,28 @@ function buildPriceBand(comparables, subjectArea) {
     if (!Number.isFinite(area) || area <= 0) return null;
 
     const unitPrices = comparables.map(comparableUnitPrice).filter(Number.isFinite);
-    if (unitPrices.length < 3) return null;
+    const prices = comparables.map((item) => toNumber(item.price)).filter(Number.isFinite);
+    const enoughUnitPrices = unitPrices.length >= 3;
+    const enoughPrices = prices.length >= 3;
+
+    if (!enoughUnitPrices && !enoughPrices) return null;
+
+    if (!enoughUnitPrices) {
+        const minPrice = Math.round(quantile(prices, 0.2));
+        const expectedPrice = Math.round(quantile(prices, 0.5));
+        const maxPrice = Math.round(quantile(prices, 0.8));
+
+        return {
+            minPrice,
+            expectedPrice,
+            maxPrice,
+            minPricePerSqm: Math.round(minPrice / area),
+            expectedPricePerSqm: Math.round(expectedPrice / area),
+            maxPricePerSqm: Math.round(maxPrice / area),
+            confidence: Math.min(0.52, 0.32 + prices.length * 0.012),
+            note: `${comparables.length} arama sonucu özetindeki fiyat dağılımı ve ${Math.round(area)} m² konu alanı üzerinden hesaplanan düşük güvenli fiyat bandıdır.`,
+        };
+    }
 
     const minPricePerSqm = Math.round(quantile(unitPrices, 0.2));
     const expectedPricePerSqm = Math.round(quantile(unitPrices, 0.5));
@@ -273,9 +294,13 @@ function buildMarketProjection(comparables) {
     };
 }
 
-function buildRegionalStats(criteria, comparables, parcelLookup, marketProjection) {
+function buildRegionalStats(criteria, comparables, parcelLookup, marketProjection, subjectArea = null) {
     const prices = comparables.map((item) => toNumber(item.price)).filter(Number.isFinite);
-    const unitPrices = comparables.map(comparableUnitPrice).filter(Number.isFinite);
+    const area = toNumber(subjectArea);
+    const directUnitPrices = comparables.map(comparableUnitPrice).filter(Number.isFinite);
+    const unitPrices = directUnitPrices.length >= 3 || !Number.isFinite(area) || area <= 0
+        ? directUnitPrices
+        : prices.map((price) => Math.round(price / area));
     const locationLabel = [criteria.neighborhood, criteria.district, criteria.city].filter(Boolean).join(" / ");
 
     return {
@@ -336,7 +361,7 @@ async function fetchSerpSnippetComparableBundle(criteria = {}, options = {}) {
     const groups = buildGroups(comparables);
     const enriched = enrichComparablesWithGroups(comparables, groups);
     const marketProjection = comparables.length ? buildMarketProjection(enriched) : null;
-    const regionalStats = comparables.length ? buildRegionalStats(criteria, enriched, options.parcelLookup, marketProjection) : null;
+    const regionalStats = comparables.length ? buildRegionalStats(criteria, enriched, options.parcelLookup, marketProjection, options.subjectArea) : null;
     const priceBand = comparables.length ? buildPriceBand(enriched, options.subjectArea) : null;
 
     return {
