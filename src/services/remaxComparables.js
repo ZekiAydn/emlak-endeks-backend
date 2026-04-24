@@ -286,6 +286,7 @@ async function fetchSearchPageWithBrowser(url) {
         if (status && status >= 400) {
             const error = new Error(`RE/MAX araması cevap vermedi (${status})`);
             error.status = status;
+            error.bodyStart = (await page.content().catch(() => "")).slice(0, 300);
             throw error;
         }
 
@@ -312,6 +313,7 @@ async function fetchSearchPage(url) {
     if (response && !response.ok) {
         fetchError = new Error(`RE/MAX araması cevap vermedi (${response.status})`);
         fetchError.status = response.status;
+        fetchError.bodyStart = (await response.text().catch(() => "")).slice(0, 300);
     } else if (response) {
         const html = await response.text();
 
@@ -326,7 +328,13 @@ async function fetchSearchPage(url) {
         try {
             return await fetchSearchPageWithBrowser(url);
         } catch (browserError) {
-            throw fetchError;
+            const error = new Error(
+                `${fetchError?.message || "RE/MAX direct fetch başarısız"}; browser fallback: ${String(browserError.message || browserError)}`
+            );
+            error.status = fetchError?.status || browserError?.status || null;
+            error.directBodyStart = fetchError?.bodyStart || null;
+            error.browserBodyStart = browserError?.bodyStart || null;
+            throw error;
         }
     }
 
