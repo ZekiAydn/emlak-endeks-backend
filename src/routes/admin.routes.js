@@ -4,11 +4,14 @@ const bcrypt = require("bcryptjs");
 const authRequired = require("../middleware/authRequired");
 const requireRole = require("../middleware/requireRole");
 const { badRequest, conflict, notFound } = require("../utils/errors");
+const { PLAN_DEFINITIONS } = require("../services/subscriptionPlans");
 const {
     normalizeUsername,
     normalizeOptionalEmail,
+    normalizeOptionalPhone,
     validateUsername,
     validateEmail,
+    validatePhone,
     validatePassword,
     findIdentityConflict,
     publicUserSelect,
@@ -44,6 +47,8 @@ router.get("/users", async (req, res) => {
             fullName: true,
             role: true,
             isActive: true,
+            subscriptionPlan: true,
+            subscriptionStatus: true,
             lastLoginAt: true,
             createdAt: true,
         },
@@ -66,6 +71,7 @@ router.post("/users", async (req, res) => {
 
     const username = normalizeUsername(rawUsername);
     const email = normalizeOptionalEmail(rawEmail);
+    const normalizedPhone = normalizeOptionalPhone(phone);
     const userRole = role === "ADMIN" ? "ADMIN" : "AGENT";
 
     const usernameError = validateUsername(username);
@@ -76,12 +82,18 @@ router.post("/users", async (req, res) => {
         if (emailError) throw badRequest(emailError, "email");
     }
 
+    if (normalizedPhone) {
+        const phoneError = validatePhone(normalizedPhone);
+        if (phoneError) throw badRequest(phoneError, "phone");
+    }
+
     const passwordError = validatePassword(password);
     if (passwordError) throw badRequest(passwordError, "password");
 
-    const exists = await findIdentityConflict(prisma, { username, email });
-    if (exists?.username === username) throw conflict("Bu kullanıcı adı zaten kullanılıyor.", "username");
+    const exists = await findIdentityConflict(prisma, { username, email, phone: normalizedPhone });
+    if (normalizedPhone && exists?.phone === normalizedPhone) throw conflict("Bu telefon numarasıyla zaten hesap açılmış.", "phone");
     if (email && exists?.email === email) throw conflict("Bu e-posta adresi zaten kullanılıyor.", "email");
+    if (exists?.username === username) throw conflict("Bu kullanıcı adı zaten kullanılıyor.", "username");
     if (exists) throw conflict("Bu kullanıcı zaten mevcut.");
 
     const passwordHash = await bcrypt.hash(String(password), 10);
@@ -93,7 +105,7 @@ router.post("/users", async (req, res) => {
             role: userRole,
             isActive: isActive === undefined ? true : Boolean(isActive),
             fullName: String(fullName || username).trim(),
-            phone: phone || null,
+            phone: normalizedPhone,
             about: about || "",
         },
         select: publicUserSelect(),
@@ -116,6 +128,8 @@ router.get("/users/:id", async (req, res) => {
             about: true,
             role: true,
             isActive: true,
+            subscriptionPlan: true,
+            subscriptionStatus: true,
             lastLoginAt: true,
             createdAt: true,
             updatedAt: true,
@@ -129,8 +143,27 @@ router.get("/users/:id", async (req, res) => {
 // update profile/role/status
 router.put("/users/:id", async (req, res) => {
     const id = req.params.id;
-    const { fullName, phone, email, about, role, isActive } = req.body || {};
+    const { fullName, phone, email, about, role, isActive, subscriptionPlan, subscriptionStatus } = req.body || {};
     const normalizedEmail = normalizeOptionalEmail(email);
+    const normalizedPhone = normalizeOptionalPhone(phone);
+    const normalizedPlan = subscriptionPlan === undefined ? undefined : String(subscriptionPlan || "").trim().toUpperCase();
+    const normalizedSubscriptionStatus = subscriptionStatus === undefined ? undefined : String(subscriptionStatus || "").trim().toUpperCase();
+
+    if (normalizedPlan !== undefined && !PLAN_DEFINITIONS[normalizedPlan]) {
+        throw badRequest("Geçerli bir paket seçin.", "subscriptionPlan");
+    }
+
+    if (normalizedSubscriptionStatus !== undefined && !["ACTIVE", "PAUSED", "CANCELED"].includes(normalizedSubscriptionStatus)) {
+        throw badRequest("Geçerli bir abonelik durumu seçin.", "subscriptionStatus");
+    }
+
+    if (normalizedPhone) {
+        const phoneError = validatePhone(normalizedPhone);
+        if (phoneError) throw badRequest(phoneError, "phone");
+
+        const exists = await findIdentityConflict(prisma, { phone: normalizedPhone, excludeId: id });
+        if (exists) throw conflict("Bu telefon numarasıyla zaten hesap açılmış.", "phone");
+    }
 
     if (normalizedEmail) {
         const emailError = validateEmail(normalizedEmail);
@@ -144,13 +177,15 @@ router.put("/users/:id", async (req, res) => {
         where: { id },
         data: {
             ...(fullName !== undefined ? { fullName } : {}),
-            ...(phone !== undefined ? { phone } : {}),
+            ...(phone !== undefined ? { phone: normalizedPhone } : {}),
             ...(email !== undefined ? { email: normalizedEmail } : {}),
             ...(about !== undefined ? { about } : {}),
             ...(role !== undefined ? { role } : {}),
             ...(isActive !== undefined ? { isActive } : {}),
+            ...(normalizedPlan !== undefined ? { subscriptionPlan: normalizedPlan } : {}),
+            ...(normalizedSubscriptionStatus !== undefined ? { subscriptionStatus: normalizedSubscriptionStatus } : {}),
         },
-        select: { id: true, username: true, fullName: true, role: true, isActive: true },
+        select: { id: true, username: true, fullName: true, role: true, isActive: true, subscriptionPlan: true, subscriptionStatus: true },
     });
 
     res.json(u);

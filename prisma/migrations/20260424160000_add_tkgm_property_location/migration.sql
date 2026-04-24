@@ -1,0 +1,22 @@
+ALTER TABLE "Property"
+ADD COLUMN "tkgmCity" TEXT,
+ADD COLUMN "tkgmDistrict" TEXT,
+ADD COLUMN "tkgmNeighborhood" TEXT;
+
+ALTER TABLE "User"
+ADD COLUMN "subscriptionPlan" TEXT NOT NULL DEFAULT 'PREMIUM_20_MONTHLY',
+ADD COLUMN "subscriptionStatus" TEXT NOT NULL DEFAULT 'ACTIVE';
+
+ALTER TABLE "Report"
+ADD COLUMN "reportType" TEXT NOT NULL DEFAULT 'RESIDENTIAL',
+ADD COLUMN "city" TEXT,
+ADD COLUMN "district" TEXT,
+ADD COLUMN "neighborhood" TEXT,
+ADD COLUMN "tkgmCity" TEXT,
+ADD COLUMN "tkgmDistrict" TEXT,
+ADD COLUMN "tkgmNeighborhood" TEXT,
+ADD COLUMN "blockNo" TEXT,
+ADD COLUMN "parcelNo" TEXT,
+ADD COLUMN "landArea" DOUBLE PRECISION,
+ADD COLUMN "landQuality" TEXT,
+ADD COLUMN "planInfo" TEXT;

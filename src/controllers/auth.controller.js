@@ -3,11 +3,13 @@ const bcrypt = require("bcryptjs");
 const { cookieName, signToken } = require("../auth/jwt");
 const {
     normalizeUsername,
-    normalizeEmail,
+    normalizeOptionalEmail,
+    normalizePhone,
     validateUsername,
     validateEmail,
+    validatePhone,
     validatePassword,
-    findUserByUsernameOrEmail,
+    findUserByIdentifier,
     findIdentityConflict,
     publicUserSelect,
 } = require("../utils/authInput");
@@ -27,6 +29,7 @@ exports.register = async (req, res) => {
     const {
         username: rawUsername,
         email: rawEmail,
+        phone: rawPhone,
         password,
         rePassword,
         passwordConfirm,
@@ -36,19 +39,29 @@ exports.register = async (req, res) => {
     } = req.body || {};
 
     const expectedAdminCode = process.env.ADMIN_REGISTER_CODE || "123456";
-    if (String(adminCode || "").trim() !== expectedAdminCode) {
+    const isAdminRegistration = Boolean(String(adminCode || "").trim());
+    if (isAdminRegistration && String(adminCode || "").trim() !== expectedAdminCode) {
         throw forbidden("Admin kodu hatalı.");
     }
 
-    const username = normalizeUsername(rawUsername);
-    const email = normalizeEmail(rawEmail);
+    const phone = normalizePhone(rawPhone);
+    const phoneError = validatePhone(phone);
+    if (phoneError) throw badRequest(phoneError, "phone");
+
+    const username = normalizeUsername(rawUsername || `u_${phone.replace(/\D/g, "")}`);
+    const email = normalizeOptionalEmail(rawEmail);
     const repeatedPassword = rePassword ?? passwordConfirm ?? confirmPassword;
+    const displayName = String(fullName || "").trim();
 
     const usernameError = validateUsername(username);
     if (usernameError) throw badRequest(usernameError, "username");
 
-    const emailError = validateEmail(email);
-    if (emailError) throw badRequest(emailError, "email");
+    if (email) {
+        const emailError = validateEmail(email);
+        if (emailError) throw badRequest(emailError, "email");
+    }
+
+    if (!displayName) throw badRequest("Ad soyad / ünvan gerekli.", "fullName");
 
     const passwordError = validatePassword(password);
     if (passwordError) throw badRequest(passwordError, "password");
@@ -57,9 +70,10 @@ exports.register = async (req, res) => {
         throw badRequest("Şifreler eşleşmiyor.", "rePassword");
     }
 
-    const exists = await findIdentityConflict(prisma, { username, email });
+    const exists = await findIdentityConflict(prisma, { username, email, phone });
+    if (exists?.phone === phone) throw conflict("Bu telefon numarasıyla zaten hesap açılmış.", "phone");
+    if (email && exists?.email === email) throw conflict("Bu e-posta adresi zaten kullanılıyor.", "email");
     if (exists?.username === username) throw conflict("Bu kullanıcı adı zaten kullanılıyor.", "username");
-    if (exists?.email === email) throw conflict("Bu e-posta adresi zaten kullanılıyor.", "email");
     if (exists) throw conflict("Bu kullanıcı zaten mevcut.");
 
     const passwordHash = await bcrypt.hash(String(password), 10);
@@ -68,9 +82,12 @@ exports.register = async (req, res) => {
         data: {
             username,
             email,
+            phone,
             passwordHash,
-            role: "ADMIN",
-            fullName: fullName || username,
+            role: isAdminRegistration ? "ADMIN" : "AGENT",
+            subscriptionPlan: "FREE",
+            subscriptionStatus: "ACTIVE",
+            fullName: displayName,
             about: ""
         },
         select: publicUserSelect()
@@ -83,15 +100,15 @@ exports.register = async (req, res) => {
 };
 
 exports.login = async (req, res) => {
-    const { identifier, username, email, password } = req.body || {};
-    const login = identifier || username || email;
-    if (!login || !password) throw badRequest("Kullanıcı adı/e-posta ve şifre gerekli.");
+    const { identifier, username, email, phone, password } = req.body || {};
+    const login = identifier || phone || email || username;
+    if (!login || !password) throw badRequest("Telefon/e-posta ve şifre gerekli.");
 
-    const user = await findUserByUsernameOrEmail(prisma, login);
-    if (!user || !user.isActive) throw unauthorized("Kullanıcı adı/e-posta veya şifre hatalı.");
+    const user = await findUserByIdentifier(prisma, login);
+    if (!user || !user.isActive) throw unauthorized("Telefon/e-posta veya şifre hatalı.");
 
     const ok = await bcrypt.compare(String(password), user.passwordHash);
-    if (!ok) throw unauthorized("Kullanıcı adı/e-posta veya şifre hatalı.");
+    if (!ok) throw unauthorized("Telefon/e-posta veya şifre hatalı.");
 
     await prisma.user.update({
         where: { id: user.id },
@@ -106,10 +123,13 @@ exports.login = async (req, res) => {
         user: {
             id: user.id,
             username: user.username,
+            phone: user.phone,
             email: user.email,
             role: user.role,
             fullName: user.fullName,
             isActive: user.isActive,
+            subscriptionPlan: user.subscriptionPlan,
+            subscriptionStatus: user.subscriptionStatus,
         },
     });
 };

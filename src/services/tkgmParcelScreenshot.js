@@ -1,6 +1,4 @@
-const { chromium } = require("playwright");
-
-let browserPromise = null;
+const { getBrowser } = require("./headlessBrowser");
 
 function buildParcelHashUrl(parcelLookup) {
     const neighborhoodId = parcelLookup?.neighborhoodId;
@@ -10,17 +8,6 @@ function buildParcelHashUrl(parcelLookup) {
     if (!neighborhoodId || !blockNo || !parcelNo) return null;
 
     return `https://parselsorgu.tkgm.gov.tr/#ara/idari/${encodeURIComponent(neighborhoodId)}/${encodeURIComponent(blockNo)}/${encodeURIComponent(parcelNo)}/${Date.now()}`;
-}
-
-async function getBrowser() {
-    if (!browserPromise) {
-        browserPromise = chromium.launch({
-            headless: true,
-            args: ["--disable-dev-shm-usage", "--disable-gpu"],
-        });
-    }
-
-    return browserPromise;
 }
 
 async function clickIfExists(page, selector) {

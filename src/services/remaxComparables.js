@@ -1,6 +1,13 @@
 const REMAX_BASE_URL = "https://remax.com.tr";
+const { getBrowser } = require("./headlessBrowser");
 
 const REQUEST_HEADERS = {
+    accept:
+        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "cache-control": "no-cache",
+    pragma: "no-cache",
+    referer: `${REMAX_BASE_URL}/`,
+    "upgrade-insecure-requests": "1",
     "user-agent":
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
     "accept-language": "tr-TR,tr;q=0.9,en;q=0.8",
@@ -99,6 +106,39 @@ function detectSubcategorySlug(propertyType) {
     return "daire";
 }
 
+function detectCommercialSubcategorySlug(propertyType) {
+    const text = normalizeText(propertyType);
+    if (text.includes("dukkan") || text.includes("magaza")) return "dukkan-magaza";
+    if (text.includes("depo")) return "depo";
+    if (text.includes("plaza")) return "plaza";
+    if (text.includes("fabrika")) return "fabrika";
+    if (text.includes("otel")) return "otel";
+    if (text.includes("ofis") || text.includes("büro") || text.includes("buro")) return "ofis";
+    return "dukkan-magaza";
+}
+
+function detectLandSubcategorySlug(propertyType) {
+    const text = normalizeText(propertyType);
+    if (text.includes("ticari")) return "ticari";
+    if (text.includes("tarla") || text.includes("tarim") || text.includes("tarım")) return "tarim";
+    if (text.includes("bag") || text.includes("bahce") || text.includes("bahçe")) return "bag-bahce";
+    if (text.includes("konut")) return "konut-imarli";
+    return null;
+}
+
+function reportCategory(criteria) {
+    const type = normalizeText(criteria.reportType);
+    const propertyType = normalizeText(criteria.propertyType);
+
+    if (type.includes("land") || type.includes("arsa") || propertyType.includes("arsa") || propertyType.includes("tarla")) {
+        return "land";
+    }
+    if (type.includes("commercial") || type.includes("ticari") || propertyType.includes("ofis") || propertyType.includes("dukkan") || propertyType.includes("magaza")) {
+        return "commercial";
+    }
+    return "residential";
+}
+
 function normalizeNeighborhoodQuery(neighborhood) {
     const base = normalizeText(neighborhood)
         .replace(/\bmahallesi\b/g, "")
@@ -113,9 +153,21 @@ function normalizeNeighborhoodQuery(neighborhood) {
 function buildSearchUrl(criteria, { withNeighborhood = true, sort = "13,desc" } = {}) {
     const citySlug = detectCitySlug(criteria.city, criteria.district);
     const districtSlug = slugify(criteria.district);
-    const subcategorySlug = detectSubcategorySlug(criteria.propertyType);
+    const category = reportCategory(criteria);
+    const subcategorySlug =
+        category === "commercial"
+            ? detectCommercialSubcategorySlug(criteria.propertyType)
+            : category === "land"
+              ? detectLandSubcategorySlug(criteria.propertyType)
+              : detectSubcategorySlug(criteria.propertyType);
 
-    const url = new URL(`${REMAX_BASE_URL}/tr/konut/satilik/${subcategorySlug}/${citySlug}/${districtSlug}`);
+    const path =
+        category === "commercial"
+            ? `/tr/ticari/satilik/${subcategorySlug}/${citySlug}/${districtSlug}`
+            : category === "land"
+              ? `/tr/arsa-arazi/satilik/${subcategorySlug ? `${subcategorySlug}/` : ""}${citySlug}/${districtSlug}`
+              : `/tr/konut/satilik/${subcategorySlug}/${citySlug}/${districtSlug}`;
+    const url = new URL(`${REMAX_BASE_URL}${path}`);
     url.searchParams.set("currencyId", "1");
     url.searchParams.set("view", "full-card");
     url.searchParams.set("sort", sort);
@@ -191,21 +243,13 @@ function extractListingPayloadFromHtml(html) {
     return null;
 }
 
-async function fetchSearchPage(url) {
-    const response = await fetch(url, {
-        headers: REQUEST_HEADERS,
-        cache: "no-store",
-    });
-
-    if (!response.ok) {
-        throw new Error(`RE/MAX araması cevap vermedi (${response.status})`);
-    }
-
-    const html = await response.text();
+function parseSearchPage(url, html) {
     const payload = extractListingPayloadFromHtml(html);
 
     if (!payload) {
-        throw new Error("RE/MAX sayfasındaki ilan verisi ayrıştırılamadı.");
+        const error = new Error("RE/MAX sayfasındaki ilan verisi ayrıştırılamadı.");
+        error.code = "REMAX_PARSE_FAILED";
+        throw error;
     }
 
     return {
@@ -213,6 +257,80 @@ async function fetchSearchPage(url) {
         recordCount: toNumber(payload.recordCount),
         listings: Array.isArray(payload.data) ? payload.data : [],
     };
+}
+
+function shouldTryBrowserFallback(error) {
+    if (!error) return false;
+    if (error.code === "REMAX_PARSE_FAILED") return true;
+    if (error.status === 403 || error.status === 429) return true;
+    if (error.name === "TypeError") return true;
+    return false;
+}
+
+async function fetchSearchPageWithBrowser(url) {
+    const browser = await getBrowser();
+    const page = await browser.newPage({
+        viewport: { width: 1440, height: 1200, deviceScaleFactor: 1 },
+        locale: "tr-TR",
+        userAgent: REQUEST_HEADERS["user-agent"],
+        extraHTTPHeaders: {
+            "accept-language": REQUEST_HEADERS["accept-language"],
+            referer: `${REMAX_BASE_URL}/`,
+        },
+    });
+
+    try {
+        const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 90000 });
+        const status = response?.status();
+
+        if (status && status >= 400) {
+            const error = new Error(`RE/MAX araması cevap vermedi (${status})`);
+            error.status = status;
+            throw error;
+        }
+
+        await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+        return parseSearchPage(url, await page.content());
+    } finally {
+        await page.close().catch(() => {});
+    }
+}
+
+async function fetchSearchPage(url) {
+    let fetchError = null;
+    let response = null;
+
+    try {
+        response = await fetch(url, {
+            headers: REQUEST_HEADERS,
+            cache: "no-store",
+        });
+    } catch (error) {
+        fetchError = error;
+    }
+
+    if (response && !response.ok) {
+        fetchError = new Error(`RE/MAX araması cevap vermedi (${response.status})`);
+        fetchError.status = response.status;
+    } else if (response) {
+        const html = await response.text();
+
+        try {
+            return parseSearchPage(url, html);
+        } catch (error) {
+            fetchError = error;
+        }
+    }
+
+    if (shouldTryBrowserFallback(fetchError)) {
+        try {
+            return await fetchSearchPageWithBrowser(url);
+        } catch (browserError) {
+            throw fetchError;
+        }
+    }
+
+    throw fetchError;
 }
 
 function haversineMeters(a, b) {

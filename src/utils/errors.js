@@ -33,6 +33,10 @@ function conflict(message, field) {
     return appError(409, message, "CONFLICT", field);
 }
 
+function paymentRequired(message = "Rapor hakkınız doldu veya aktif abonelik bulunamadı.") {
+    return appError(402, message, "SUBSCRIPTION_REQUIRED");
+}
+
 function serviceError(message) {
     return appError(502, message, "UPSTREAM_SERVICE_ERROR");
 }
@@ -92,6 +96,7 @@ module.exports = {
     forbidden,
     notFound,
     conflict,
+    paymentRequired,
     serviceError,
     errorHandler,
 };

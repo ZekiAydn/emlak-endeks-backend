@@ -11,7 +11,7 @@ Sen Türkiye'de gayrimenkul değerleme için "fiyat endeks analizi" üreten bir 
 - comps alanı yoksa boş array döndür.
 
 GİRDİ:
-Kullanıcı "adresText", konut/bina özelliklerini verir.
+Kullanıcı "adresText", konut/ticari/arsa ve bina/imar özelliklerini verir.
 Opsiyonel olarak "comparables" alanında kullanıcı emsalleri verir.
 Pazar/bölge bölümleri için adres veya il/ilçe/mahalle bilgisi varsa marketProjection ve regionalStats alanlarını mümkün olduğunca doldur.
 Kesin istatistik bilmiyorsan sayı alanlarını null bırak; ama summary ve bölgesel özet alanlarında "konum ve taşınmaz özelliklerine göre niteliksel yorum" üret.
@@ -53,6 +53,7 @@ KULLANICI EMSALİ VARSA (comparables doluysa):
       "price": number|null,
       "netArea": number|null,
       "grossArea": number|null,
+      "landArea": number|null,
       "floor": number|null,
       "buildingAge": number|null,
       "distanceKm": number|null
@@ -85,7 +86,7 @@ KULLANICI EMSALİ VARSA (comparables doluysa):
 }
 
 HESAPLAMA NOTU:
-- m² fiyatını netArea varsa netArea, yoksa grossArea üzerinden hesapla.
+- m² fiyatını netArea varsa netArea, yoksa grossArea, arsa raporunda landArea üzerinden hesapla.
 - avgPrice "ortalama/beklenen" fiyat gibi düşün.
 
 TUTARLILIK:

@@ -6,6 +6,7 @@ const { textToJson } = require("../services/geminiTextToJson");
 const { fetchRemaxComparableBundle } = require("../services/remaxComparables");
 const { fetchParcelLookup } = require("../services/tkgmParcel");
 const { captureParcelMapImage, buildParcelHashUrl } = require("../services/tkgmParcelScreenshot");
+const { assertCanCreateReport } = require("../services/subscriptionPlans");
 const {
     sanitizePricingAnalysis,
     sanitizeBuildingDetails,
@@ -39,16 +40,65 @@ function cleanString(value) {
     return String(value || "").trim();
 }
 
+function cleanOptional(value) {
+    const text = cleanString(value);
+    return text || null;
+}
+
 function toNum(value) {
     if (value === undefined || value === null || value === "") return null;
     const n = Number(value);
     return Number.isFinite(n) ? n : null;
 }
 
+function reportTypeValue(value) {
+    const text = cleanString(value || "RESIDENTIAL").toUpperCase();
+    if (["RESIDENTIAL", "COMMERCIAL", "LAND"].includes(text)) return text;
+    return "RESIDENTIAL";
+}
+
+function reportLocationData(body = {}, property = null) {
+    return {
+        reportType: reportTypeValue(body.reportType),
+        city: cleanOptional(body.city ?? property?.city),
+        district: cleanOptional(body.district ?? property?.district),
+        neighborhood: cleanOptional(body.neighborhood ?? property?.neighborhood),
+        tkgmCity: cleanOptional(body.tkgmCity ?? property?.tkgmCity ?? body.city ?? property?.city),
+        tkgmDistrict: cleanOptional(body.tkgmDistrict ?? property?.tkgmDistrict ?? body.district ?? property?.district),
+        tkgmNeighborhood: cleanOptional(body.tkgmNeighborhood ?? property?.tkgmNeighborhood ?? body.neighborhood ?? property?.neighborhood),
+        blockNo: cleanOptional(body.blockNo ?? property?.blockNo),
+        parcelNo: cleanOptional(body.parcelNo ?? property?.parcelNo),
+        landArea: toNum(body.landArea ?? property?.landArea),
+        landQuality: cleanOptional(body.landQuality ?? property?.landQuality),
+        planInfo: cleanOptional(body.planInfo ?? property?.planInfo),
+    };
+}
+
+function reportLocationSource(report) {
+    const property = report.property || {};
+
+    return {
+        reportType: report.reportType || "RESIDENTIAL",
+        city: property.city || report.city,
+        district: property.district || report.district,
+        neighborhood: property.neighborhood || report.neighborhood,
+        tkgmCity: property.tkgmCity || report.tkgmCity || property.city || report.city,
+        tkgmDistrict: property.tkgmDistrict || report.tkgmDistrict || property.district || report.district,
+        tkgmNeighborhood: property.tkgmNeighborhood || report.tkgmNeighborhood || property.neighborhood || report.neighborhood,
+        blockNo: property.blockNo || report.blockNo,
+        parcelNo: property.parcelNo || report.parcelNo,
+        landArea: property.landArea ?? report.landArea,
+        landQuality: property.landQuality || report.landQuality,
+        planInfo: property.planInfo || report.planInfo,
+        addressText: property.addressText || report.addressText,
+        parcelText: property.parcelText || report.parcelText,
+    };
+}
+
 async function getClient(userId, id) {
     if (!id) return null;
     const client = await prisma.client.findFirst({ where: { id, userId } });
-    if (!client) throw notFound("Müşteri bulunamadı.");
+    if (!client) throw notFound("Rapor sahibi kaydı bulunamadı.");
     return client;
 }
 
@@ -150,24 +200,27 @@ exports.createReport = async (req, res) => {
     const userId = req.user.userId;
     const body = req.body || {};
 
+    await assertCanCreateReport(prisma, userId);
+
     const property = await getProperty(userId, body.propertyId);
     const client = property?.client || (await getClient(userId, body.clientId));
 
     if (body.clientId && property && property.clientId !== body.clientId) {
-        throw badRequest("Seçilen taşınmaz bu müşteriye ait değil.", "propertyId");
+        throw badRequest("Seçilen taşınmaz bu rapor sahibi kaydıyla eşleşmiyor.", "propertyId");
     }
 
     const clientFullName = cleanString(body.clientFullName || client?.fullName);
     const addressText = cleanString(body.addressText || property?.addressText);
     const parcelText = cleanString(body.parcelText ?? property?.parcelText ?? "");
 
-    if (!clientFullName) throw badRequest("Rapor için müşteri seçmeniz veya müşteri adı girmeniz gerekiyor.", "clientId");
+    if (!clientFullName) throw badRequest("Rapor sahibi adı girmeniz gerekiyor.", "clientFullName");
     if (!addressText) throw badRequest("Rapor için taşınmaz adresi gerekiyor.", "addressText");
 
     const data = {
         userId,
         clientId: client?.id || null,
         propertyId: property?.id || null,
+        ...reportLocationData(body, property),
         clientFullName,
         addressText,
         parcelText,
@@ -260,12 +313,13 @@ exports.updateReport = async (req, res) => {
     }
 
     if (property && client && property.clientId !== client.id) {
-        throw badRequest("Seçilen taşınmaz bu müşteriye ait değil.", "propertyId");
+        throw badRequest("Seçilen taşınmaz bu rapor sahibi kaydıyla eşleşmiyor.", "propertyId");
     }
 
     if (body.clientFullName !== undefined) data.clientFullName = cleanString(body.clientFullName || client?.fullName);
     if (body.addressText !== undefined) data.addressText = cleanString(body.addressText || property?.addressText);
     if (body.parcelText !== undefined) data.parcelText = cleanString(body.parcelText ?? property?.parcelText ?? "");
+    Object.assign(data, reportLocationData({ ...existingReport, ...body }, property || existingReport.property));
     if (body.consultantOpinion !== undefined) data.consultantOpinion = body.consultantOpinion || "";
     if (body.comparablesJson !== undefined) data.comparablesJson = mergeComparablesJson(existingReport.comparablesJson, body.comparablesJson);
     if (body.marketProjectionJson !== undefined) data.marketProjectionJson = body.marketProjectionJson;
@@ -305,7 +359,7 @@ exports.autofillExternalData = async (req, res) => {
     });
     if (!report) throw notFound("Rapor bulunamadı.");
 
-    const property = report.property || {};
+    const location = reportLocationSource(report);
     const propertyDetails = {
         ...(report.propertyDetails || {}),
         ...(body.propertyDetails || {}),
@@ -315,19 +369,27 @@ exports.autofillExternalData = async (req, res) => {
         ...(body.buildingDetails || {}),
     };
 
-    const criteria = {
-        city: cleanString(body.city ?? property.city ?? ""),
-        district: cleanString(body.district ?? property.district ?? ""),
-        neighborhood: cleanString(body.neighborhood ?? property.neighborhood ?? ""),
-        blockNo: cleanString(body.blockNo ?? property.blockNo ?? ""),
-        parcelNo: cleanString(body.parcelNo ?? property.parcelNo ?? ""),
+    const remaxCriteria = {
+        city: cleanString(body.city ?? location.city ?? ""),
+        district: cleanString(body.district ?? location.district ?? ""),
+        neighborhood: cleanString(body.neighborhood ?? location.neighborhood ?? ""),
         propertyType: cleanString(body.propertyType ?? buildingDetails.propertyType ?? ""),
+        reportType: cleanString(body.reportType ?? location.reportType ?? report.reportType ?? ""),
+    };
+    const parcelCriteria = {
+        city: cleanString(body.tkgmCity ?? location.tkgmCity ?? remaxCriteria.city),
+        district: cleanString(body.tkgmDistrict ?? location.tkgmDistrict ?? remaxCriteria.district),
+        neighborhood: cleanString(body.tkgmNeighborhood ?? location.tkgmNeighborhood ?? remaxCriteria.neighborhood),
+        blockNo: cleanString(body.blockNo ?? location.blockNo ?? ""),
+        parcelNo: cleanString(body.parcelNo ?? location.parcelNo ?? ""),
     };
 
     const subjectArea =
         toNum(body.subjectArea) ??
         toNum(propertyDetails.netArea) ??
         toNum(propertyDetails.grossArea) ??
+        toNum(body.landArea) ??
+        toNum(location.landArea) ??
         null;
     const subjectRoomText =
         propertyDetails.roomCount !== undefined && propertyDetails.roomCount !== null
@@ -337,9 +399,9 @@ exports.autofillExternalData = async (req, res) => {
     const warnings = [];
     let parcelLookup = report.comparablesJson?.parcelLookup || null;
 
-    if (criteria.city && criteria.district && criteria.neighborhood && criteria.blockNo && criteria.parcelNo) {
+    if (parcelCriteria.city && parcelCriteria.district && parcelCriteria.neighborhood && parcelCriteria.blockNo && parcelCriteria.parcelNo) {
         try {
-            parcelLookup = await fetchParcelLookup(criteria);
+            parcelLookup = await fetchParcelLookup(parcelCriteria);
             if (parcelLookup) {
                 parcelLookup.sourceUrl = buildParcelHashUrl(parcelLookup);
             }
@@ -349,9 +411,9 @@ exports.autofillExternalData = async (req, res) => {
     }
 
     let bundle = null;
-    if (criteria.city && criteria.district) {
+    if (remaxCriteria.city && remaxCriteria.district) {
         try {
-            bundle = await fetchRemaxComparableBundle(criteria, {
+            bundle = await fetchRemaxComparableBundle(remaxCriteria, {
                 parcelLookup,
                 subjectPoint: parcelLookup?.center || null,
                 subjectArea,
@@ -463,7 +525,8 @@ exports.aiPriceIndex = async (req, res) => {
     if (!report) throw notFound("Rapor bulunamadı.");
 
     const body = req.body || {};
-    const addressText = body.addressText ?? report.addressText ?? report.property?.addressText ?? null;
+    const location = reportLocationSource(report);
+    const addressText = body.addressText ?? location.addressText ?? null;
 
     const propertyDetails = {
         ...(report.propertyDetails || {}),
@@ -477,10 +540,11 @@ exports.aiPriceIndex = async (req, res) => {
 
     const netArea = propertyDetails?.netArea ?? null;
     const grossArea = propertyDetails?.grossArea ?? null;
-    const areaForSqm = netArea || grossArea || null;
+    const landArea = body.landArea ?? location.landArea ?? null;
+    const areaForSqm = netArea || grossArea || landArea || null;
 
     if (!addressText) throw badRequest("AI analizi için taşınmaz adresi gerekli.", "addressText");
-    if (!areaForSqm) throw badRequest("AI analizi için net m² veya brüt m² bilgisi gerekli.", "netArea");
+    if (!areaForSqm) throw badRequest("AI analizi için m² bilgisi gerekli.", "netArea");
 
     const userComparables = comparablesFrom(body, report);
 
@@ -489,13 +553,14 @@ exports.aiPriceIndex = async (req, res) => {
             fullName: report.client?.fullName || report.clientFullName,
         },
         addressText,
-        parcelText: body.parcelText ?? report.parcelText ?? report.property?.parcelText ?? null,
+        parcelText: body.parcelText ?? location.parcelText ?? null,
         propertyDetails: {
             roomCount: propertyDetails.roomCount ?? null,
             salonCount: propertyDetails.salonCount ?? null,
             bathCount: propertyDetails.bathCount ?? null,
             grossArea: propertyDetails.grossArea ?? null,
             netArea: propertyDetails.netArea ?? null,
+            landArea: landArea ?? null,
             floor: propertyDetails.floor ?? null,
             heating: propertyDetails.heating ?? null,
             terraceArea: propertyDetails.terraceArea ?? null,
@@ -573,7 +638,7 @@ exports.aiPriceIndex = async (req, res) => {
     } else {
         applyFallbackPriceEstimate(normalized, {
             addressText,
-            property: report.property,
+            property: location,
             propertyDetails,
             buildingDetails,
             areaForSqm,
@@ -602,7 +667,7 @@ exports.aiPriceIndex = async (req, res) => {
 
     ensureProjectionSections(normalized, {
         addressText,
-        property: report.property,
+        property: location,
         propertyDetails,
         buildingDetails,
         areaForSqm,

@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
@@ -26,6 +29,7 @@
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "@prisma/client": "^6.19.0",
+    "@sparticuz/chromium": "^147.0.2",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",

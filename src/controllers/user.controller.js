@@ -1,6 +1,7 @@
 const prisma = require("../prisma");
-const { normalizeOptionalEmail, validateEmail, findIdentityConflict } = require("../utils/authInput");
-const { badRequest, conflict, notFound, unauthorized } = require("../utils/errors");
+const { normalizeOptionalEmail, normalizePhone, validateEmail, validatePhone, findIdentityConflict } = require("../utils/authInput");
+const { PLAN_DEFINITIONS, getSubscriptionSummary } = require("../services/subscriptionPlans");
+const { badRequest, conflict, forbidden, notFound, unauthorized } = require("../utils/errors");
 
 const mediaSelect = {
     id: true, type: true, mime: true, filename: true, order: true, createdAt: true, userId: true, reportId: true
@@ -16,7 +17,11 @@ exports.getMe = async (req, res) => {
     });
 
     if (!user) throw notFound("Kullanıcı bulunamadı.");
-    res.json(user);
+
+    const { passwordHash, ...safeUser } = user;
+    safeUser.subscription = await getSubscriptionSummary(prisma, userId);
+
+    res.json(safeUser);
 };
 
 exports.updateMe = async (req, res) => {
@@ -24,6 +29,15 @@ exports.updateMe = async (req, res) => {
 
     const { fullName, phone, email, about } = req.body || {};
     const normalizedEmail = normalizeOptionalEmail(email);
+    const normalizedPhone = phone === undefined ? undefined : normalizePhone(phone);
+
+    if (normalizedPhone !== undefined) {
+        const phoneError = validatePhone(normalizedPhone);
+        if (phoneError) throw badRequest(phoneError, "phone");
+
+        const exists = await findIdentityConflict(prisma, { phone: normalizedPhone, excludeId: userId });
+        if (exists) throw conflict("Bu telefon numarasıyla zaten hesap açılmış.", "phone");
+    }
 
     if (normalizedEmail) {
         const emailError = validateEmail(normalizedEmail);
@@ -37,11 +51,35 @@ exports.updateMe = async (req, res) => {
         where: { id: userId },
         data: {
             fullName,
-            phone,
+            ...(phone !== undefined ? { phone: normalizedPhone } : {}),
             ...(email !== undefined ? { email: normalizedEmail } : {}),
             about,
         }
     });
 
     res.json(updated);
+};
+
+exports.updateSubscription = async (req, res) => {
+    const userId = req.user.userId;
+    const plan = String(req.body?.plan || "").trim().toUpperCase();
+
+    if (!PLAN_DEFINITIONS[plan]) {
+        throw badRequest("Geçerli bir paket seçin.", "plan");
+    }
+
+    const selfServiceEnabled = process.env.ALLOW_SELF_SUBSCRIPTION_CHANGE === "true";
+    if (plan !== "FREE" && !selfServiceEnabled) {
+        throw forbidden("Premium paket aktivasyonu için ödeme işlemi tamamlanmalı.");
+    }
+
+    await prisma.user.update({
+        where: { id: userId },
+        data: {
+            subscriptionPlan: plan,
+            subscriptionStatus: "ACTIVE",
+        },
+    });
+
+    res.json(await getSubscriptionSummary(prisma, userId));
 };

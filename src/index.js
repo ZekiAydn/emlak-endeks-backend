@@ -32,8 +32,39 @@ app.use(cors({
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
+app.get("/health/runtime", async (_req, res) => {
+    const { buildLaunchOptions, isServerlessRuntime } = require("./services/headlessBrowser");
+
+    let browser = null;
+    try {
+        const options = await buildLaunchOptions();
+        browser = {
+            hasExecutablePath: Boolean(options.executablePath),
+            executableName: options.executablePath ? options.executablePath.split("/").pop() : null,
+            argsCount: Array.isArray(options.args) ? options.args.length : 0,
+        };
+    } catch (error) {
+        browser = {
+            error: String(error.message || error),
+        };
+    }
+
+    res.json({
+        ok: true,
+        node: process.version,
+        vercel: Boolean(process.env.VERCEL),
+        serverless: isServerlessRuntime(),
+        corsOriginsCount: allowed.length,
+        browser,
+    });
+});
+
 app.use(routes);
 app.use(errorHandler);
 
-const port = Number(process.env.PORT || 4000);
-app.listen(port, () => console.log(`API running on :${port}`));
+if (require.main === module) {
+    const port = Number(process.env.PORT || 4000);
+    app.listen(port, () => console.log(`API running on :${port}`));
+}
+
+module.exports = app;
