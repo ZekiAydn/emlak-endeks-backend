@@ -174,9 +174,14 @@ function normalizeSerpUrl(url) {
     try {
         const parsed = new URL(text);
         parsed.hash = "";
-        parsed.searchParams.delete("utm_source");
-        parsed.searchParams.delete("utm_medium");
-        parsed.searchParams.delete("utm_campaign");
+        const keep = new URLSearchParams();
+        for (const [key, value] of parsed.searchParams.entries()) {
+            const lower = key.toLowerCase();
+            if (lower.startsWith("utm_")) continue;
+            if (["gclid", "fbclid", "yclid", "mc_cid", "mc_eid"].includes(lower)) continue;
+            if (["sortfield", "sortdirection"].includes(lower)) keep.set(key, value);
+        }
+        parsed.search = keep.toString();
         return parsed.toString();
     } catch {
         return text;
@@ -254,4 +259,9 @@ async function resolveHepsiemlakUrls(criteria = {}, sortOptions = {}) {
 module.exports = {
     resolveHepsiemlakUrls,
     buildHepsiemlakCandidateUrls,
+    buildSerpQuery,
+    searchWithSerpApi,
+    normalizeSerpUrl,
+    isUsefulHepsiemlakUrl,
+    withSort,
 };

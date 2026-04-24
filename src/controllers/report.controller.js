@@ -13,7 +13,7 @@ const {
     buildAiNote,
 } = require("../utils/reportHelpers");
 const { badRequest, notFound } = require("../utils/errors");
-const {fetchComparableBundle} = require("../services/comparableProviders");
+const { fetchComparableBundle } = require("../services/comparableProviders");
 
 
 const mediaSelect = {
@@ -429,23 +429,40 @@ exports.autofillExternalData = async (req, res) => {
         }
     }
 
-    if (!bundle && !parcelLookup) {
+    const hasComparables = Array.isArray(bundle?.comparables) && bundle.comparables.length > 0;
+
+    if (!hasComparables && !parcelLookup) {
         throw badRequest(
             warnings[0] ||
                 "Otomatik veri çekmek için taşınmazın il, ilçe, mahalle, ada ve parsel bilgileri eksiksiz olmalı."
         );
     }
 
+    const existingComparables = Array.isArray(report.comparablesJson?.comparables)
+        ? report.comparablesJson.comparables
+        : [];
+
+    if (!hasComparables && existingComparables.length) {
+        warnings.push("Yeni emsal bulunamadı, varsa önceki emsaller korunmuştur.");
+    }
+
     const nextComparablesJson = {
         ...(report.comparablesJson || {}),
-        ...(bundle
+        ...(hasComparables
             ? {
                   comparables: bundle.comparables,
                   groups: bundle.groups,
-                comparableSource: bundle.sourceMeta,
-                remaxSource: bundle.sourceMeta?.provider === "REMAX" ? bundle.sourceMeta : report.comparablesJson?.remaxSource || null,
+                  comparableSource: bundle.sourceMeta,
+                  remaxSource: bundle.sourceMeta?.provider === "REMAX" ? bundle.sourceMeta : report.comparablesJson?.remaxSource || null,
+                  hepsiemlakSource:
+                      bundle.sourceMeta?.provider === "HEPSIEMLAK_HTML"
+                          ? bundle.sourceMeta
+                          : report.comparablesJson?.hepsiemlakSource || null,
               }
-            : {}),
+            : {
+                  comparables: existingComparables,
+                  groups: report.comparablesJson?.groups || null,
+              }),
         ...(parcelLookup ? { parcelLookup } : {}),
         externalDataUpdatedAt: new Date().toISOString(),
     };
@@ -470,7 +487,7 @@ exports.autofillExternalData = async (req, res) => {
         }
     }
 
-    const pricingUpdate = bundle?.priceBand
+    const pricingUpdate = hasComparables && bundle?.priceBand
         ? {
               minPrice: bundle.priceBand.minPrice,
               expectedPrice: bundle.priceBand.expectedPrice,
@@ -487,8 +504,8 @@ exports.autofillExternalData = async (req, res) => {
         where: { id: reportId },
         data: {
             comparablesJson: nextComparablesJson,
-            ...(bundle?.marketProjection ? { marketProjectionJson: bundle.marketProjection } : {}),
-            ...(bundle?.regionalStats ? { regionalStatsJson: bundle.regionalStats } : {}),
+            ...(hasComparables && bundle?.marketProjection ? { marketProjectionJson: bundle.marketProjection } : {}),
+            ...(hasComparables && bundle?.regionalStats ? { regionalStatsJson: bundle.regionalStats } : {}),
             ...(pricingUpdate
                 ? {
                       pricingAnalysis: {
@@ -506,10 +523,10 @@ exports.autofillExternalData = async (req, res) => {
         comparables: nextComparablesJson.comparables || [],
         groups: nextComparablesJson.groups || null,
         parcelLookup: nextComparablesJson.parcelLookup || null,
-        marketProjection: bundle?.marketProjection || report.marketProjectionJson || null,
-        regionalStats: bundle?.regionalStats || report.regionalStatsJson || null,
+        marketProjection: hasComparables ? bundle?.marketProjection || null : report.marketProjectionJson || null,
+        regionalStats: hasComparables ? bundle?.regionalStats || null : report.regionalStatsJson || null,
         pricingAnalysis: pricingUpdate || report.pricingAnalysis || null,
-        sourceMeta: bundle?.sourceMeta || nextComparablesJson.comparableSource || nextComparablesJson.remaxSource || null,
+        sourceMeta: bundle?.sourceMeta || nextComparablesJson.comparableSource || null,
         warnings,
     });
 };

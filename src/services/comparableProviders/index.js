@@ -40,6 +40,9 @@ async function fetchComparableBundle(criteria = {}, options = {}) {
 
             const bundle = await provider.fetch(criteria, options);
             const count = Array.isArray(bundle?.comparables) ? bundle.comparables.length : 0;
+            if (Array.isArray(bundle?.warnings) && bundle.warnings.length) {
+                warnings.push(...bundle.warnings);
+            }
 
             if (count > 0) {
                 console.log("[COMPARABLES] provider success", {
@@ -62,6 +65,7 @@ async function fetchComparableBundle(criteria = {}, options = {}) {
 
             console.warn("[COMPARABLES] provider empty", {
                 provider: provider.name,
+                count,
             });
         } catch (error) {
             const message = `${provider.name}: ${String(error.message || error)}`;
@@ -92,4 +96,5 @@ async function fetchComparableBundle(criteria = {}, options = {}) {
 
 module.exports = {
     fetchComparableBundle,
+    selectedProviders,
 };

@@ -1,5 +1,5 @@
 const cheerio = require("cheerio");
-const { resolveHepsiemlakUrls } = require("./hepsiemlakUrlResolver");
+const { resolveHepsiemlakUrls, withSort } = require("./hepsiemlakUrlResolver");
 
 const HEPSIEMLAK_BASE_URL = "https://www.hepsiemlak.com";
 
@@ -230,6 +230,7 @@ function findListingCards($) {
         "[class*='listing']",
         "[class*='Listing']",
         "[class*='card']",
+        "[class*='Card']",
     ];
 
     const cards = [];
@@ -355,6 +356,110 @@ function parseCard($, element, criteria = {}) {
     };
 }
 
+function firstString(...values) {
+    return values.map((value) => cleanText(value)).find(Boolean) || null;
+}
+
+function collectObjects(value, output = []) {
+    if (!value || typeof value !== "object") return output;
+
+    if (Array.isArray(value)) {
+        value.forEach((item) => collectObjects(item, output));
+        return output;
+    }
+
+    output.push(value);
+    Object.values(value).forEach((item) => collectObjects(item, output));
+    return output;
+}
+
+function normalizeScriptComparable(item, criteria = {}) {
+    const offer = item.offers || item.offer || {};
+    const address =
+        typeof item.address === "object"
+            ? [item.address.addressLocality, item.address.addressRegion, item.address.streetAddress]
+                  .filter(Boolean)
+                  .join(" / ")
+            : item.address;
+    const floorSize = item.floorSize || item.size || item.area || {};
+    const sourceUrl = absoluteUrl(item.url || item.href || item.link);
+    const price = toNumber(offer.price || item.price || item.priceValue);
+    const grossArea = toNumber(
+        floorSize.value ||
+            floorSize.area ||
+            item.grossArea ||
+            item.netArea ||
+            item.areaGross ||
+            item.area
+    );
+
+    if (!sourceUrl || !Number.isFinite(price) || !Number.isFinite(grossArea)) return null;
+
+    return {
+        title: firstString(item.name, item.title, item.description) || "Hepsiemlak İlanı",
+        source: "Hepsiemlak",
+        sourceUrl,
+        price,
+        netArea: null,
+        grossArea,
+        roomText: firstString(item.numberOfRooms, item.rooms, item.roomText),
+        buildingAge: parseBuildingAge(item.buildingAge || item.age),
+        floor: parseFloorNumber(item.floor || item.floorText),
+        floorText: firstString(item.floorText, item.floor),
+        totalFloors: toNumber(item.totalFloors),
+        distanceMeters: null,
+        listingAgeDays: listingAgeDays(item.datePosted || item.createdAt),
+        imageUrl: normalizeImageUrl(Array.isArray(item.image) ? item.image[0] : item.image),
+        address: firstString(address, parseLocation("", criteria)),
+        externalId: extractExternalId(sourceUrl),
+        createdAt: item.datePosted || item.createdAt || null,
+        pricePerSqm: Math.round(price / grossArea),
+        provider: "HEPSIEMLAK",
+        latitude: toNumber(item.latitude),
+        longitude: toNumber(item.longitude),
+    };
+}
+
+function parseJsonLikeScript(text) {
+    const trimmed = String(text || "").trim();
+    if (!trimmed) return null;
+
+    const candidates = [];
+    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+        candidates.push(trimmed);
+    } else {
+        const match = trimmed.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+        if (match?.[1]) candidates.push(match[1]);
+    }
+
+    for (const candidate of candidates) {
+        try {
+            return JSON.parse(candidate);
+        } catch {
+            // continue with other script candidates
+        }
+    }
+
+    return null;
+}
+
+function parseScriptComparables($, criteria = {}) {
+    const comparables = [];
+
+    $("script[type='application/ld+json'], script#__NEXT_DATA__, script").each((_, node) => {
+        const json = parseJsonLikeScript($(node).text());
+        if (!json) return;
+
+        const objects = collectObjects(json);
+        for (const item of objects) {
+            const comparable = normalizeScriptComparable(item, criteria);
+            if (comparable) comparables.push(comparable);
+        }
+    });
+
+    return dedupeComparables(comparables);
+}
+
 function dedupeComparables(items) {
     const seen = new Set();
     const output = [];
@@ -405,6 +510,8 @@ function trimOutlierComparables(comparables) {
 
         return true;
     });
+
+    if (!clean.length && comparables.length) return comparables.filter((item) => !isLikelyTestListing(item));
 
     const units = clean.map(comparableUnitPrice).filter(Number.isFinite).sort((a, b) => a - b);
     if (units.length < 8) return clean;
@@ -603,7 +710,7 @@ function buildPriceBandForSubject(comparables, subjectArea) {
     };
 }
 
-async function fetchHtml(url) {
+async function fetchHtml(url, options = {}) {
     const timeoutMs = Number(process.env.HEPSIEMLAK_TIMEOUT_MS || 25000);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -628,33 +735,51 @@ async function fetchHtml(url) {
             size: html.length,
         });
 
+        const result = {
+            url,
+            status: response.status,
+            ok: response.ok,
+            contentType,
+            html,
+            htmlLength: html.length,
+            bodyStart: html.slice(0, 500),
+        };
+
         if (!response.ok) {
-            throw new Error(`Hepsiemlak araması cevap vermedi (${response.status}): ${html.slice(0, 300)}`);
+            const error = new Error(`Hepsiemlak araması cevap vermedi (${response.status}): ${html.slice(0, 300)}`);
+            error.fetchResult = result;
+            throw error;
         }
 
         if (!html || html.length < 1000) {
-            throw new Error("Hepsiemlak aramasından beklenen HTML alınamadı.");
+            const error = new Error(`Hepsiemlak aramasından beklenen HTML alınamadı. Uzunluk: ${html.length}`);
+            error.fetchResult = result;
+            throw error;
         }
 
-        return html;
+        return options.includeMeta ? result : html;
     } finally {
         clearTimeout(timer);
     }
 }
 
-function parseSearchPage(url, html, criteria = {}) {
+function parseSearchPage(url, html, criteria = {}, options = {}) {
     const $ = cheerio.load(html);
+    const scriptComparables = parseScriptComparables($, criteria);
     const cards = findListingCards($);
 
     const comparables = dedupeComparables(
-        cards
+        [
+            ...scriptComparables,
+            ...cards
             .map((card) => parseCard($, card, criteria))
             .filter((item) => {
                 if (!item?.sourceUrl) return false;
                 if (!Number.isFinite(toNumber(item.price))) return false;
                 if (!Number.isFinite(toNumber(item.netArea) || toNumber(item.grossArea))) return false;
                 return true;
-            })
+            }),
+        ]
     );
 
     console.log("[HEPSIEMLAK] parsed", {
@@ -663,11 +788,30 @@ function parseSearchPage(url, html, criteria = {}) {
         comparables: comparables.length,
     });
 
+    if (!cards.length && !scriptComparables.length) {
+        console.warn("[HEPSIEMLAK] no cards", {
+            url,
+            title: cleanText($("title").first().text()).slice(0, 200),
+            bodyStart: cleanText($("body").text()).slice(0, 300),
+        });
+    }
+
+    if (options.includeDiagnostics) {
+        return {
+            title: cleanText($("title").first().text()),
+            cardsCount: cards.length + scriptComparables.length,
+            comparables,
+            bodyStart: html.slice(0, 500),
+        };
+    }
+
     return comparables;
 }
 
-async function fetchFirstWorkingCandidate(criteria, sortOptions = {}) {
-    const candidates = await resolveHepsiemlakUrls(criteria, sortOptions);
+async function fetchFirstWorkingCandidate(criteria, sortOptions = {}, options = {}) {
+    const candidates = Array.isArray(options.urls) && options.urls.length
+        ? options.urls
+        : await resolveHepsiemlakUrls(criteria, sortOptions);
     const errors = [];
 
     for (const url of candidates) {
@@ -702,14 +846,17 @@ async function fetchHepsiemlakHtmlComparableBundle(criteria = {}, options = {}) 
     const maxItems = Math.min(Number(process.env.HEPSIEMLAK_MAX_ITEMS || 36), 60);
 
     const latest = await fetchFirstWorkingCandidate(criteria);
-    const low = await fetchFirstWorkingCandidate(criteria, {
-        sortField: "PRICE",
-        sortDirection: "ASC",
-    });
-    const high = await fetchFirstWorkingCandidate(criteria, {
-        sortField: "PRICE",
-        sortDirection: "DESC",
-    });
+    const defaultBaseUrls = latest.url && latest.comparables?.length ? [latest.url] : null;
+    const low = await fetchFirstWorkingCandidate(
+        criteria,
+        { sortField: "PRICE", sortDirection: "ASC" },
+        defaultBaseUrls ? { urls: defaultBaseUrls.map((url) => withSort(url, "PRICE", "ASC")) } : {}
+    );
+    const high = await fetchFirstWorkingCandidate(
+        criteria,
+        { sortField: "PRICE", sortDirection: "DESC" },
+        defaultBaseUrls ? { urls: defaultBaseUrls.map((url) => withSort(url, "PRICE", "DESC")) } : {}
+    );
 
     const allErrors = [
         ...(latest.errors || []),
@@ -761,15 +908,21 @@ async function fetchHepsiemlakHtmlComparableBundle(criteria = {}, options = {}) 
             scope: criteria.neighborhood ? "neighborhood" : criteria.district ? "district" : "city",
             recordCount: rawComparables.length,
             sampleCount: comparables.length,
+            resolverMode: process.env.HEPSIEMLAK_URL_RESOLVER_MODE || "CANDIDATES_ONLY",
             searchUrls: {
                 latest: latest.url,
                 low: low.url,
                 high: high.url,
             },
+            serpUsed: Boolean(process.env.SERPAPI_KEY) &&
+                (process.env.HEPSIEMLAK_URL_RESOLVER_MODE || "CANDIDATES_ONLY") === "CANDIDATES_THEN_SERP",
         },
     };
 }
 
 module.exports = {
     fetchHepsiemlakHtmlComparableBundle,
+    fetchHtml,
+    parseSearchPage,
+    fetchFirstWorkingCandidate,
 };
