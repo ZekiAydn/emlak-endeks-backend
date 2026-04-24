@@ -3,7 +3,6 @@ const { priceIndexPrompt } = require("../ai/prompts/priceIndexPrompt");
 const { normalizePriceIndex } = require("../ai/normalize/priceIndexNormalize");
 const { applyFallbackPriceEstimate, ensureProjectionSections } = require("../ai/fallback/priceEstimate");
 const { textToJson } = require("../services/geminiTextToJson");
-const { fetchRemaxComparableBundle } = require("../services/remaxComparables");
 const { fetchParcelLookup } = require("../services/tkgmParcel");
 const { captureParcelMapImage, buildParcelHashUrl } = require("../services/tkgmParcelScreenshot");
 const { assertCanCreateReport } = require("../services/subscriptionPlans");
@@ -14,6 +13,8 @@ const {
     buildAiNote,
 } = require("../utils/reportHelpers");
 const { badRequest, notFound } = require("../utils/errors");
+const {fetchComparableBundle} = require("../services/comparableProviders");
+
 
 const mediaSelect = {
     id: true,
@@ -413,12 +414,16 @@ exports.autofillExternalData = async (req, res) => {
     let bundle = null;
     if (remaxCriteria.city && remaxCriteria.district) {
         try {
-            bundle = await fetchRemaxComparableBundle(remaxCriteria, {
+            bundle = await fetchComparableBundle(remaxCriteria, {
                 parcelLookup,
                 subjectPoint: parcelLookup?.center || null,
                 subjectArea,
                 subjectRoomText,
             });
+
+            if (Array.isArray(bundle?.warnings) && bundle.warnings.length) {
+                warnings.push(...bundle.warnings);
+            }
         } catch (error) {
             warnings.push(String(error.message || error));
         }
@@ -437,7 +442,8 @@ exports.autofillExternalData = async (req, res) => {
             ? {
                   comparables: bundle.comparables,
                   groups: bundle.groups,
-                  remaxSource: bundle.sourceMeta,
+                comparableSource: bundle.sourceMeta,
+                remaxSource: bundle.sourceMeta?.provider === "REMAX" ? bundle.sourceMeta : report.comparablesJson?.remaxSource || null,
               }
             : {}),
         ...(parcelLookup ? { parcelLookup } : {}),
@@ -503,7 +509,7 @@ exports.autofillExternalData = async (req, res) => {
         marketProjection: bundle?.marketProjection || report.marketProjectionJson || null,
         regionalStats: bundle?.regionalStats || report.regionalStatsJson || null,
         pricingAnalysis: pricingUpdate || report.pricingAnalysis || null,
-        sourceMeta: bundle?.sourceMeta || nextComparablesJson.remaxSource || null,
+        sourceMeta: bundle?.sourceMeta || nextComparablesJson.comparableSource || nextComparablesJson.remaxSource || null,
         warnings,
     });
 };
