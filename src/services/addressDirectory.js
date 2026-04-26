@@ -1,3 +1,5 @@
+import { applyNeighborhoodSupplements } from "./addressSupplements.js";
+
 const DEFAULT_BASE_URL = "https://api.turkiyeapi.dev/v1";
 const BASE_URL = (process.env.ADDRESS_DIRECTORY_API_URL || DEFAULT_BASE_URL).replace(/\/$/, "");
 const CACHE_TTL_MS = Number(process.env.ADDRESS_DIRECTORY_CACHE_TTL_MS || 1000 * 60 * 60 * 24);
@@ -108,7 +110,10 @@ async function fetchNeighborhoods(districtId, districtName, cityName) {
     const resolvedDistrictId = await resolveDistrictId(districtId, districtName, cityName);
     if (!resolvedDistrictId) return [];
     const rows = await fetchDirectory(`/neighborhoods?districtId=${encodeURIComponent(resolvedDistrictId)}&limit=1000`);
-    return sortByName(rows.map(mapLocation).filter((item) => item.id !== null && item.name));
+    const resolvedCityName = cityName || rows.find((row) => row?.province)?.province || "";
+    const resolvedDistrictName = districtName || rows.find((row) => row?.district)?.district || "";
+    const items = rows.map(mapLocation).filter((item) => item.id !== null && item.name);
+    return sortByName(applyNeighborhoodSupplements(items, { cityName: resolvedCityName, districtName: resolvedDistrictName }));
 }
 
 export {
