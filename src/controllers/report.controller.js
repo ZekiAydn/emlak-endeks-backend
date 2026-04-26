@@ -14,6 +14,7 @@ import {
 } from "../utils/reportHelpers.js";
 import { badRequest, notFound } from "../utils/errors.js";
 import { fetchComparableBundle } from "../services/comparableProviders/index.js";
+import { enrichComparableImages } from "../services/comparableImageEnrichment.js";
 
 
 const mediaSelect = {
@@ -96,6 +97,15 @@ function reportLocationSource(report) {
     };
 }
 
+function publicBaseUrl(req) {
+    const configured = process.env.BACKEND_PUBLIC_URL || process.env.API_PUBLIC_URL || process.env.NEXT_PUBLIC_BACKEND_URL;
+    if (configured) return configured.replace(/\/$/, "");
+
+    const protocol = req.headers["x-forwarded-proto"] || req.protocol || "http";
+    const host = req.headers["x-forwarded-host"] || req.get("host");
+    return host ? `${protocol}://${host}` : "";
+}
+
 async function getClient(userId, id) {
     if (!id) return null;
     const client = await prisma.client.findFirst({ where: { id, userId } });
@@ -140,6 +150,8 @@ function normalizeComparable(c) {
         listingAgeDays: toNum(c?.listingAgeDays),
         roomText: c?.roomText ?? null,
         imageUrl: c?.imageUrl ?? null,
+        imageSource: c?.imageSource ?? null,
+        imageAttribution: c?.imageAttribution ?? null,
         address: c?.address ?? null,
         externalId: c?.externalId ?? null,
         createdAt: c?.createdAt ?? null,
@@ -426,6 +438,31 @@ export const autofillExternalData = async (req, res) => {
             }
         } catch (error) {
             warnings.push(String(error.message || error));
+        }
+    }
+
+    if (Array.isArray(bundle?.comparables) && bundle.comparables.length > 0) {
+        try {
+            const imageEnrichment = await enrichComparableImages(bundle.comparables, {
+                subjectLocation: {
+                    city: remaxCriteria.city,
+                    district: remaxCriteria.district,
+                    neighborhood: remaxCriteria.neighborhood,
+                    address: location.addressText,
+                },
+                baseUrl: publicBaseUrl(req),
+            });
+
+            bundle = {
+                ...bundle,
+                comparables: imageEnrichment.comparables,
+                sourceMeta: {
+                    ...(bundle.sourceMeta || {}),
+                    enrichment: imageEnrichment.sourceMeta,
+                },
+            };
+        } catch (error) {
+            warnings.push(`Emsal görselleri zenginleştirilemedi: ${String(error.message || error)}`);
         }
     }
 
