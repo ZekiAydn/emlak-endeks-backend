@@ -1,4 +1,4 @@
-import { fetchCities, fetchDistricts, fetchNeighborhoods } from "../services/tkgmParcel.js";
+import { fetchCities, fetchDistricts, fetchNeighborhoods } from "../services/addressDirectory.js";
 
 export async function listCities(_req, res) {
     res.json(await fetchCities());
