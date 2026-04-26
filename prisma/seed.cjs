@@ -5,12 +5,8 @@ const bcrypt = require("bcryptjs");
 const prisma = new PrismaClient();
 
 async function main() {
-    const username = process.env.ADMIN_USERNAME;
-    const plainPassword = process.env.ADMIN_PASSWORD;
-
-    if (!plainPassword) {
-        throw new Error("ADMIN_PASSWORD is required for seeding the admin user.");
-    }
+    const username = process.env.ADMIN_USERNAME || "admin@zeki.com";
+    const plainPassword = process.env.ADMIN_PASSWORD || "123123123";
 
     const passwordHash = await bcrypt.hash(plainPassword, 10);
 
@@ -20,15 +16,19 @@ async function main() {
             passwordHash, // şifreyi güncel tutar
             role: "ADMIN",
             isActive: true,
+            subscriptionPlan: "PREMIUM_20_MONTHLY",
+            subscriptionStatus: "ACTIVE",
         },
         create: {
             username,
             passwordHash,
             role: "ADMIN",
             isActive: true,
+            subscriptionPlan: "PREMIUM_20_MONTHLY",
+            subscriptionStatus: "ACTIVE",
             fullName: process.env.ADMIN_FULL_NAME || "Admin",
             phone: null,
-            email: null,
+            email: username.includes("@") ? username : null,
             about: "",
         },
         select: { id: true, username: true, role: true, fullName: true },

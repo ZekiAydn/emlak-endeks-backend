@@ -197,7 +197,7 @@ router.put("/users/:id", async (req, res) => {
 router.put("/users/:id/password", async (req, res) => {
     const id = req.params.id;
     const { password } = req.body || {};
-    if (!password || String(password).length < 8) throw badRequest("Şifre en az 8 karakter olmalı.", "password");
+    if (!password || String(password).length < 6) throw badRequest("Şifre en az 6 karakter olmalı.", "password");
 
     const passwordHash = await bcrypt.hash(String(password), 10);
     await prisma.user.update({ where: { id }, data: { passwordHash } });

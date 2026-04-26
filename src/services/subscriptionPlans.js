@@ -9,27 +9,15 @@ const PLAN_DEFINITIONS = {
     },
     PREMIUM_20_MONTHLY: {
         key: "PREMIUM_20_MONTHLY",
-        name: "Premium 20",
+        name: "Aylık Abone",
         billingInterval: "MONTHLY",
         monthlyReportLimit: 20,
-    },
-    PREMIUM_50_MONTHLY: {
-        key: "PREMIUM_50_MONTHLY",
-        name: "Premium 50",
-        billingInterval: "MONTHLY",
-        monthlyReportLimit: 50,
     },
     PREMIUM_20_YEARLY: {
         key: "PREMIUM_20_YEARLY",
-        name: "Premium 20 Yıllık",
+        name: "Yıllık Abone",
         billingInterval: "YEARLY",
         monthlyReportLimit: 20,
-    },
-    PREMIUM_50_YEARLY: {
-        key: "PREMIUM_50_YEARLY",
-        name: "Premium 50 Yıllık",
-        billingInterval: "YEARLY",
-        monthlyReportLimit: 50,
     },
 };
 
