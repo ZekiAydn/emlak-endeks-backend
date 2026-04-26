@@ -51,7 +51,21 @@ function cleanOptional(value) {
 
 function toNum(value) {
     if (value === undefined || value === null || value === "") return null;
+    if (typeof value === "number") return Number.isFinite(value) ? value : null;
+    const text = String(value).trim();
+    if (!text) return null;
+    let normalized = text.replace(/[^\d.,-]/g, "");
+    if (normalized.includes(",")) {
+        normalized = normalized.replace(/\./g, "").replace(",", ".");
+    } else if (/^-?\d{1,3}(?:\.\d{3})+$/.test(normalized)) {
+        normalized = normalized.replace(/\./g, "");
+    } else if ((normalized.match(/\./g) || []).length > 1) {
+        normalized = normalized.replace(/\./g, "");
+    }
+    if (!normalized || normalized === "-") return null;
     const n = Number(value);
+    const parsed = Number(normalized);
+    if (Number.isFinite(parsed)) return parsed;
     return Number.isFinite(n) ? n : null;
 }
 
@@ -124,7 +138,7 @@ async function getProperty(userId, id) {
 
 async function findReport(userId, id) {
     const report = await prisma.report.findFirst({
-        where: { id, userId },
+        where: { id, userId, isDeleted: false },
         include: reportInclude,
     });
     if (!report) throw notFound("Rapor bulunamadı.");
@@ -269,7 +283,7 @@ export const listReports = async (req, res) => {
     const skip = Number(req.query.skip || 0);
 
     const list = await prisma.report.findMany({
-        where: { userId },
+        where: { userId, isDeleted: false },
         orderBy: { createdAt: "desc" },
         take,
         skip,
@@ -289,13 +303,13 @@ export const deleteReport = async (req, res) => {
 
     await findReport(userId, id);
 
-    await prisma.$transaction([
-        prisma.media.deleteMany({ where: { reportId: id } }),
-        prisma.propertyDetails.deleteMany({ where: { reportId: id } }),
-        prisma.buildingDetails.deleteMany({ where: { reportId: id } }),
-        prisma.pricingAnalysis.deleteMany({ where: { reportId: id } }),
-        prisma.report.delete({ where: { id } }),
-    ]);
+    await prisma.report.update({
+        where: { id },
+        data: {
+            isDeleted: true,
+            deletedAt: new Date(),
+        },
+    });
 
     res.json({ ok: true });
 };
@@ -364,7 +378,7 @@ export const autofillExternalData = async (req, res) => {
     const body = req.body || {};
 
     const report = await prisma.report.findFirst({
-        where: { id: reportId, userId },
+        where: { id: reportId, userId, isDeleted: false },
         include: {
             property: true,
             propertyDetails: true,
@@ -399,7 +413,7 @@ export const autofillExternalData = async (req, res) => {
         parcelNo: cleanString(body.parcelNo ?? location.parcelNo ?? ""),
     };
 
-    const subjectArea =
+    let subjectArea =
         toNum(body.subjectArea) ??
         toNum(propertyDetails.netArea) ??
         toNum(propertyDetails.grossArea) ??
@@ -420,6 +434,7 @@ export const autofillExternalData = async (req, res) => {
             parcelLookup = await fetchParcelLookup(parcelCriteria);
             if (parcelLookup) {
                 parcelLookup.sourceUrl = buildParcelHashUrl(parcelLookup);
+                subjectArea = subjectArea ?? toNum(parcelLookup?.properties?.area);
             }
         } catch (error) {
             warnings.push(String(error.message || error));
@@ -538,6 +553,7 @@ export const autofillExternalData = async (req, res) => {
     const policyPriceBand = hasComparables && bundle?.priceBand
         ? applyValuationPolicy(bundle.priceBand, subjectArea)
         : null;
+    const inferredLandArea = comparableCategory === "land" && subjectArea && subjectArea > 0 ? subjectArea : null;
 
     const pricingUpdate = policyPriceBand
         ? {
@@ -561,6 +577,7 @@ export const autofillExternalData = async (req, res) => {
     await prisma.report.update({
         where: { id: reportId },
         data: {
+            ...(inferredLandArea && !toNum(location.landArea) ? { landArea: inferredLandArea } : {}),
             comparablesJson: nextComparablesJson,
             ...(hasComparables && bundle?.marketProjection ? { marketProjectionJson: bundle.marketProjection } : {}),
             ...(pricingUpdate
@@ -582,6 +599,7 @@ export const autofillExternalData = async (req, res) => {
         parcelLookup: nextComparablesJson.parcelLookup || null,
         marketProjection: hasComparables ? bundle?.marketProjection || null : report.marketProjectionJson || null,
         regionalStats: null,
+        landArea: inferredLandArea,
         pricingAnalysis: pricingUpdate || report.pricingAnalysis || null,
         sourceMeta: bundle?.sourceMeta || nextComparablesJson.comparableSource || null,
         mapMedia,
@@ -594,7 +612,7 @@ export const aiPriceIndex = async (req, res) => {
     const reportId = req.params.id;
 
     const report = await prisma.report.findFirst({
-        where: { id: reportId, userId },
+        where: { id: reportId, userId, isDeleted: false },
         include: {
             propertyDetails: true,
             buildingDetails: true,
@@ -619,9 +637,9 @@ export const aiPriceIndex = async (req, res) => {
         ...(body.buildingDetails || {}),
     };
 
-    const netArea = propertyDetails?.netArea ?? null;
-    const grossArea = propertyDetails?.grossArea ?? null;
-    const landArea = body.landArea ?? location.landArea ?? null;
+    const netArea = toNum(propertyDetails?.netArea);
+    const grossArea = toNum(propertyDetails?.grossArea);
+    const landArea = toNum(body.landArea ?? location.landArea ?? report.comparablesJson?.parcelLookup?.properties?.area);
     const areaForSqm = netArea || grossArea || landArea || null;
 
     if (!addressText) throw badRequest("AI analizi için taşınmaz adresi gerekli.", "addressText");

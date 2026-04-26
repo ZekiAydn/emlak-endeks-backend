@@ -33,6 +33,7 @@ router.get("/users", async (req, res) => {
                 { username: { contains: q, mode: "insensitive" } },
                 { fullName: { contains: q, mode: "insensitive" } },
                 { email: { contains: q, mode: "insensitive" } },
+                { phone: { contains: q } },
             ],
         }
         : {};
@@ -46,6 +47,8 @@ router.get("/users", async (req, res) => {
             id: true,
             username: true,
             email: true,
+            phone: true,
+            phoneVerifiedAt: true,
             fullName: true,
             role: true,
             isActive: true,
@@ -126,6 +129,7 @@ router.get("/users/:id", async (req, res) => {
             username: true,
             fullName: true,
             phone: true,
+            phoneVerifiedAt: true,
             email: true,
             about: true,
             role: true,
@@ -145,7 +149,7 @@ router.get("/users/:id", async (req, res) => {
 // update profile/role/status
 router.put("/users/:id", async (req, res) => {
     const id = req.params.id;
-    const { fullName, phone, email, about, role, isActive, subscriptionPlan, subscriptionStatus } = req.body || {};
+    const { fullName, phone, email, about, role, isActive, subscriptionPlan, subscriptionStatus, phoneVerified } = req.body || {};
     const normalizedEmail = normalizeOptionalEmail(email);
     const normalizedPhone = normalizeOptionalPhone(phone);
     const normalizedPlan = subscriptionPlan === undefined ? undefined : String(subscriptionPlan || "").trim().toUpperCase();
@@ -180,14 +184,26 @@ router.put("/users/:id", async (req, res) => {
         data: {
             ...(fullName !== undefined ? { fullName } : {}),
             ...(phone !== undefined ? { phone: normalizedPhone } : {}),
+            ...(phone !== undefined && phoneVerified === undefined ? { phoneVerifiedAt: null } : {}),
             ...(email !== undefined ? { email: normalizedEmail } : {}),
             ...(about !== undefined ? { about } : {}),
             ...(role !== undefined ? { role } : {}),
             ...(isActive !== undefined ? { isActive } : {}),
             ...(normalizedPlan !== undefined ? { subscriptionPlan: normalizedPlan } : {}),
             ...(normalizedSubscriptionStatus !== undefined ? { subscriptionStatus: normalizedSubscriptionStatus } : {}),
+            ...(phoneVerified !== undefined ? { phoneVerifiedAt: phoneVerified ? new Date() : null } : {}),
         },
-        select: { id: true, username: true, fullName: true, role: true, isActive: true, subscriptionPlan: true, subscriptionStatus: true },
+        select: {
+            id: true,
+            username: true,
+            fullName: true,
+            phone: true,
+            phoneVerifiedAt: true,
+            role: true,
+            isActive: true,
+            subscriptionPlan: true,
+            subscriptionStatus: true,
+        },
     });
 
     res.json(u);

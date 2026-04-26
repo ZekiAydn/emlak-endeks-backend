@@ -41,7 +41,8 @@
     "multer": "^2.0.2",
     "node-fetch": "^3.3.2",
     "playwright": "^1.59.1",
-    "prisma": "^6.19.0"
+    "prisma": "^6.19.0",
+    "twilio": "^6.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.11"

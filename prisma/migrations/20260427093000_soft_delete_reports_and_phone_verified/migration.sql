@@ -1,0 +1,6 @@
+ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "phoneVerifiedAt" TIMESTAMP(3);
+
+ALTER TABLE "Report" ADD COLUMN IF NOT EXISTS "isDeleted" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "Report" ADD COLUMN IF NOT EXISTS "deletedAt" TIMESTAMP(3);
+
+CREATE INDEX IF NOT EXISTS "Report_userId_isDeleted_idx" ON "Report"("userId", "isDeleted");

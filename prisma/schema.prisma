@@ -15,6 +15,7 @@ model User {
   about        String?
   subscriptionPlan String @default("FREE")
   subscriptionStatus String @default("ACTIVE")
+  phoneVerifiedAt DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   username     String    @unique
@@ -97,6 +98,8 @@ model Report {
   landArea          Float?
   landQuality       String?
   planInfo          String?
+  isDeleted         Boolean          @default(false)
+  deletedAt         DateTime?
   reportDate        DateTime
   consultantOpinion String?
   comparablesJson   Json?
@@ -111,6 +114,7 @@ model Report {
   user              User             @relation(fields: [userId], references: [id])
 
   @@index([userId])
+  @@index([userId, isDeleted])
   @@index([clientId])
   @@index([propertyId])
 }

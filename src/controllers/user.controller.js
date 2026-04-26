@@ -30,6 +30,9 @@ export const updateMe = async (req, res) => {
     const { fullName, phone, email, about } = req.body || {};
     const normalizedEmail = normalizeOptionalEmail(email);
     const normalizedPhone = phone === undefined ? undefined : normalizePhone(phone);
+    const currentUser = phone === undefined
+        ? null
+        : await prisma.user.findUnique({ where: { id: userId }, select: { phone: true } });
 
     if (normalizedPhone !== undefined) {
         const phoneError = validatePhone(normalizedPhone);
@@ -52,6 +55,7 @@ export const updateMe = async (req, res) => {
         data: {
             fullName,
             ...(phone !== undefined ? { phone: normalizedPhone } : {}),
+            ...(phone !== undefined && normalizedPhone !== currentUser?.phone ? { phoneVerifiedAt: null } : {}),
             ...(email !== undefined ? { email: normalizedEmail } : {}),
             about,
         }

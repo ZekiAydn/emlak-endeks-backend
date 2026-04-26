@@ -18,6 +18,7 @@ async function main() {
             isActive: true,
             subscriptionPlan: "PREMIUM_20_MONTHLY",
             subscriptionStatus: "ACTIVE",
+            phoneVerifiedAt: new Date(),
         },
         create: {
             username,
@@ -26,6 +27,7 @@ async function main() {
             isActive: true,
             subscriptionPlan: "PREMIUM_20_MONTHLY",
             subscriptionStatus: "ACTIVE",
+            phoneVerifiedAt: new Date(),
             fullName: process.env.ADMIN_FULL_NAME || "Admin",
             phone: null,
             email: username.includes("@") ? username : null,

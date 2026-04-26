@@ -104,6 +104,7 @@ function publicUserSelect() {
         isActive: true,
         subscriptionPlan: true,
         subscriptionStatus: true,
+        phoneVerifiedAt: true,
     };
 }
 
