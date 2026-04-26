@@ -526,6 +526,46 @@ function fillMissingImages(results, extraImagePool = [], baseUrl) {
     };
 }
 
+function hasComparableArea(item) {
+    return Number.isFinite(Number(item?.netArea)) || Number.isFinite(Number(item?.grossArea));
+}
+
+function buildAreaCoverage(beforeRows = [], afterRows = []) {
+    const beforeByKey = new Map(
+        beforeRows.map((item, index) => [item?.externalId || item?.sourceUrl || String(index), hasComparableArea(item)])
+    );
+    const bySource = {};
+
+    let areaCount = 0;
+    let enrichedAreaCount = 0;
+
+    afterRows.forEach((item, index) => {
+        const hasArea = hasComparableArea(item);
+        const key = item?.externalId || item?.sourceUrl || String(index);
+        const source = item?.source || item?.provider || "Bilinmeyen";
+
+        if (!bySource[source]) bySource[source] = { total: 0, areaCount: 0 };
+        bySource[source].total += 1;
+
+        if (hasArea) {
+            areaCount += 1;
+            bySource[source].areaCount += 1;
+        }
+
+        if (hasArea && beforeByKey.get(key) === false) {
+            enrichedAreaCount += 1;
+        }
+    });
+
+    return {
+        areaCount,
+        missingAreaCount: Math.max(0, afterRows.length - areaCount),
+        enrichedAreaCount,
+        areaCoveragePct: afterRows.length ? Math.round((areaCount / afterRows.length) * 100) : 0,
+        bySource,
+    };
+}
+
 export async function enrichComparableImages(comparables = [], { subjectLocation = {}, baseUrl = "" } = {}) {
     const rows = Array.isArray(comparables) ? comparables.slice(0, MAX_COMPARABLES) : [];
     if (!rows.length) {
@@ -540,6 +580,11 @@ export async function enrichComparableImages(comparables = [], { subjectLocation
                 mockImageCount: 0,
                 assignedPoolImageCount: 0,
                 pooledImageCount: 0,
+                areaCount: 0,
+                missingAreaCount: 0,
+                enrichedAreaCount: 0,
+                areaCoveragePct: 0,
+                areaCoverageBySource: {},
             },
         };
     }
@@ -547,6 +592,7 @@ export async function enrichComparableImages(comparables = [], { subjectLocation
     const enrichedResults = await Promise.all(rows.map((item) => enrichComparable(item || {}, subjectLocation, baseUrl)));
     const googleImagePool = await collectGoogleImagePool(rows, subjectLocation);
     const filled = fillMissingImages(enrichedResults, googleImagePool, baseUrl);
+    const areaCoverage = buildAreaCoverage(rows, filled.rows);
 
     return {
         comparables: filled.rows,
@@ -559,6 +605,11 @@ export async function enrichComparableImages(comparables = [], { subjectLocation
             mockImageCount: filled.mockImageCount,
             assignedPoolImageCount: filled.assignedPoolImageCount,
             pooledImageCount: filled.pooledImageCount,
+            areaCount: areaCoverage.areaCount,
+            missingAreaCount: areaCoverage.missingAreaCount,
+            enrichedAreaCount: areaCoverage.enrichedAreaCount,
+            areaCoveragePct: areaCoverage.areaCoveragePct,
+            areaCoverageBySource: areaCoverage.bySource,
         },
     };
 }
