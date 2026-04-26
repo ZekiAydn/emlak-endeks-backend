@@ -13,9 +13,25 @@ function sortByName(items) {
     return items.slice().sort((a, b) => String(a.name).localeCompare(String(b.name), "tr"));
 }
 
+function normalizeName(value) {
+    return String(value || "")
+        .trim()
+        .toLocaleLowerCase("tr-TR")
+        .replace(/\s+/g, " ");
+}
+
+function publicId(rawId) {
+    return rawId === null || rawId === undefined ? null : `trapi:${rawId}`;
+}
+
+function rawId(value) {
+    const text = String(value || "");
+    return text.startsWith("trapi:") ? text.slice("trapi:".length) : text;
+}
+
 function mapLocation(item) {
     return {
-        id: item?.id ?? null,
+        id: publicId(item?.id),
         name: item?.name || null,
         source: "TURKIYE_API",
     };
@@ -60,15 +76,38 @@ async function fetchCities() {
     return sortByName(rows.map(mapLocation).filter((item) => item.id !== null && item.name));
 }
 
-async function fetchDistricts(cityId) {
-    if (!cityId) return [];
-    const rows = await fetchDirectory(`/districts?provinceId=${encodeURIComponent(cityId)}&limit=1000`);
+async function resolveProvinceId(cityId, cityName) {
+    if (cityName) {
+        const rows = await fetchDirectory("/provinces?limit=100");
+        const match = rows.find((item) => normalizeName(item.name) === normalizeName(cityName));
+        if (match?.id) return match.id;
+    }
+    return rawId(cityId);
+}
+
+async function resolveDistrictId(districtId, districtName, cityName) {
+    if (districtName && cityName) {
+        const provinceId = await resolveProvinceId(null, cityName);
+        if (provinceId) {
+            const rows = await fetchDirectory(`/districts?provinceId=${encodeURIComponent(provinceId)}&limit=1000`);
+            const match = rows.find((item) => normalizeName(item.name) === normalizeName(districtName));
+            if (match?.id) return match.id;
+        }
+    }
+    return rawId(districtId);
+}
+
+async function fetchDistricts(cityId, cityName) {
+    const provinceId = await resolveProvinceId(cityId, cityName);
+    if (!provinceId) return [];
+    const rows = await fetchDirectory(`/districts?provinceId=${encodeURIComponent(provinceId)}&limit=1000`);
     return sortByName(rows.map(mapLocation).filter((item) => item.id !== null && item.name));
 }
 
-async function fetchNeighborhoods(districtId) {
-    if (!districtId) return [];
-    const rows = await fetchDirectory(`/neighborhoods?districtId=${encodeURIComponent(districtId)}&limit=1000`);
+async function fetchNeighborhoods(districtId, districtName, cityName) {
+    const resolvedDistrictId = await resolveDistrictId(districtId, districtName, cityName);
+    if (!resolvedDistrictId) return [];
+    const rows = await fetchDirectory(`/neighborhoods?districtId=${encodeURIComponent(resolvedDistrictId)}&limit=1000`);
     return sortByName(rows.map(mapLocation).filter((item) => item.id !== null && item.name));
 }
 

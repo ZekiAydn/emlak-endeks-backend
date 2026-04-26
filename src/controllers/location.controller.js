@@ -5,9 +5,9 @@ export async function listCities(_req, res) {
 }
 
 export async function listDistricts(req, res) {
-    res.json(await fetchDistricts(req.query.cityId));
+    res.json(await fetchDistricts(req.query.cityId, req.query.cityName));
 }
 
 export async function listNeighborhoods(req, res) {
-    res.json(await fetchNeighborhoods(req.query.districtId));
+    res.json(await fetchNeighborhoods(req.query.districtId, req.query.districtName, req.query.cityName));
 }
