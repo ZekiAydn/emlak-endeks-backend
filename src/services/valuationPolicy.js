@@ -15,11 +15,7 @@ function roundSqm(value) {
 }
 
 function policyNote() {
-    return [
-        "Fiyat bandı hızlı satış senaryosundaki minimum değer üzerinden oluşturulmuştur.",
-        "Ortalama fiyat minimum değere %15 enflasyon/pazarlık farkı eklenerek, yüksek fiyat minimum değere %30 fark eklenerek hesaplanmıştır.",
-        "Tahmini satış süreleri: minimum 1-3 ay, ortalama 3-6 ay, yüksek 6-12 ay.",
-    ].join(" ");
+    return "Fiyat bandı üç farklı satış vadesi senaryosuna göre oluşturulmuştur.";
 }
 
 function saleStrategy() {
@@ -29,23 +25,18 @@ function saleStrategy() {
             priceKey: "minPrice",
             pricePerSqmKey: "minPricePerSqm",
             saleTimeLabel: "1-3 ay",
-            multiplier: 1,
         },
         mid: {
             label: "Ortalama Satış",
             priceKey: "expectedPrice",
             pricePerSqmKey: "expectedPricePerSqm",
             saleTimeLabel: "3-6 ay",
-            multiplier: 1.15,
-            note: "%15 enflasyon/pazarlık farkı",
         },
         high: {
             label: "Yüksek Beklenti",
             priceKey: "maxPrice",
             pricePerSqmKey: "maxPricePerSqm",
             saleTimeLabel: "6-12 ay",
-            multiplier: 1.3,
-            note: "Minimum değere %30 fark",
         },
     };
 }
@@ -64,8 +55,6 @@ function applyValuationPolicy(input = {}, areaHint = null) {
         ...input,
         saleStrategy: saleStrategy(),
         valuationPolicy: {
-            averageInflationPct: 15,
-            highDifferencePct: 30,
             note: policyNote(),
         },
     };
@@ -82,8 +71,6 @@ function applyValuationPolicy(input = {}, areaHint = null) {
         avgPrice: expectedPrice,
         saleStrategy: saleStrategy(),
         valuationPolicy: {
-            averageInflationPct: 15,
-            highDifferencePct: 30,
             note: policyNote(),
         },
     };

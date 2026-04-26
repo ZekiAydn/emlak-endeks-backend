@@ -1,7 +1,7 @@
 import prisma from "../prisma.js";
 import { priceIndexPrompt } from "../ai/prompts/priceIndexPrompt.js";
 import { normalizePriceIndex } from "../ai/normalize/priceIndexNormalize.js";
-import { applyFallbackPriceEstimate, ensureProjectionSections } from "../ai/fallback/priceEstimate.js";
+import { applyFallbackPriceEstimate } from "../ai/fallback/priceEstimate.js";
 import { textToJson } from "../services/geminiTextToJson.js";
 import { fetchParcelLookup } from "../services/tkgmParcel.js";
 import { captureParcelMapImage, buildParcelHashUrl } from "../services/tkgmParcelScreenshot.js";
@@ -559,7 +559,6 @@ export const autofillExternalData = async (req, res) => {
         data: {
             comparablesJson: nextComparablesJson,
             ...(hasComparables && bundle?.marketProjection ? { marketProjectionJson: bundle.marketProjection } : {}),
-            ...(hasComparables && bundle?.regionalStats ? { regionalStatsJson: bundle.regionalStats } : {}),
             ...(pricingUpdate
                 ? {
                       pricingAnalysis: {
@@ -578,7 +577,7 @@ export const autofillExternalData = async (req, res) => {
         groups: nextComparablesJson.groups || null,
         parcelLookup: nextComparablesJson.parcelLookup || null,
         marketProjection: hasComparables ? bundle?.marketProjection || null : report.marketProjectionJson || null,
-        regionalStats: hasComparables ? bundle?.regionalStats || null : report.regionalStatsJson || null,
+        regionalStats: null,
         pricingAnalysis: pricingUpdate || report.pricingAnalysis || null,
         sourceMeta: bundle?.sourceMeta || nextComparablesJson.comparableSource || null,
         mapMedia,
@@ -752,22 +751,13 @@ export const aiPriceIndex = async (req, res) => {
         areaForSqm
     );
 
-    ensureProjectionSections(normalized, {
-        addressText,
-        property: location,
-        propertyDetails,
-        buildingDetails,
-        areaForSqm,
-        userComparables,
-    });
-
     const note = buildAiNote(normalized);
 
     await prisma.report.update({
         where: { id: reportId },
         data: {
             marketProjectionJson: normalized.marketProjection || null,
-            regionalStatsJson: normalized.regionalStats || null,
+            regionalStatsJson: null,
             pricingAnalysis: {
                 upsert: {
                     create: {
@@ -809,6 +799,7 @@ export const aiPriceIndex = async (req, res) => {
 
     res.json({
         ...normalized,
+        regionalStats: null,
         aiNote: note,
         needsUserApproval: true,
         reviewMode: "USER_CONTROLLED",
