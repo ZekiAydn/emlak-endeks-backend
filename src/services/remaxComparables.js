@@ -1,5 +1,7 @@
-const REMAX_BASE_URL = "https://remax.com.tr";
 import { getBrowser } from "./headlessBrowser.js";
+import { propertyCategory } from "./propertyCategory.js";
+
+const REMAX_BASE_URL = "https://remax.com.tr";
 
 const REQUEST_HEADERS = {
     accept:
@@ -108,35 +110,28 @@ function detectSubcategorySlug(propertyType) {
 
 function detectCommercialSubcategorySlug(propertyType) {
     const text = normalizeText(propertyType);
-    if (text.includes("dukkan") || text.includes("magaza")) return "dukkan-magaza";
-    if (text.includes("depo")) return "depo";
+    if (text.includes("shop") || text.includes("dukkan") || text.includes("magaza") || text.includes("isyeri") || text.includes("is yeri")) return "dukkan-magaza";
+    if (text.includes("cafe") || text.includes("bar") || text.includes("restoran") || text.includes("lokanta") || text.includes("pizzaci") || text.includes("pastane") || text.includes("firin")) return "dukkan-magaza";
+    if (text.includes("warehouse") || text.includes("depo") || text.includes("antrepo")) return "depo";
     if (text.includes("plaza")) return "plaza";
-    if (text.includes("fabrika")) return "fabrika";
-    if (text.includes("otel")) return "otel";
-    if (text.includes("ofis") || text.includes("büro") || text.includes("buro")) return "ofis";
+    if (text.includes("factory") || text.includes("fabrika") || text.includes("sanayi") || text.includes("atolye") || text.includes("imalathane")) return "fabrika";
+    if (text.includes("hotel") || text.includes("otel")) return "otel";
+    if (text.includes("office") || text.includes("ofis") || text.includes("buro")) return "ofis";
     return "dukkan-magaza";
 }
 
 function detectLandSubcategorySlug(propertyType) {
     const text = normalizeText(propertyType);
-    if (text.includes("ticari")) return "ticari";
-    if (text.includes("tarla") || text.includes("tarim") || text.includes("tarım")) return "tarim";
-    if (text.includes("bag") || text.includes("bahce") || text.includes("bahçe")) return "bag-bahce";
-    if (text.includes("konut")) return "konut-imarli";
+    if (text.includes("commercial land") || text.includes("commercial") || text.includes("ticari")) return "ticari";
+    if (text.includes("field") || text.includes("tarla") || text.includes("tarim")) return "tarim";
+    if (text.includes("garden") || text.includes("bag") || text.includes("bahce")) return "bag-bahce";
+    if (text === "land" || text.includes("other")) return null;
+    if (text.includes("residential") || text.includes("konut")) return "konut-imarli";
     return null;
 }
 
 function reportCategory(criteria) {
-    const type = normalizeText(criteria.reportType);
-    const propertyType = normalizeText(criteria.propertyType);
-
-    if (type.includes("land") || type.includes("arsa") || propertyType.includes("arsa") || propertyType.includes("tarla")) {
-        return "land";
-    }
-    if (type.includes("commercial") || type.includes("ticari") || propertyType.includes("ofis") || propertyType.includes("dukkan") || propertyType.includes("magaza")) {
-        return "commercial";
-    }
-    return "residential";
+    return propertyCategory(criteria);
 }
 
 function normalizeNeighborhoodQuery(neighborhood) {
@@ -476,6 +471,18 @@ function isLikelyTestListing(item) {
 function selectRelevantComparables(comparables, { subjectArea, subjectRoomText } = {}) {
     const area = toNumber(subjectArea);
     const room = normalizeText(subjectRoomText);
+    if (Number.isFinite(area) && area > 0) {
+        const areaMatched = comparables.filter((item) => {
+            const areaValue = comparableArea(item);
+            if (!Number.isFinite(areaValue) || areaValue <= 0) return false;
+            const ratio = areaValue / area;
+            return ratio >= 0.35 && ratio <= 2.5;
+        });
+        if (areaMatched.length >= 8) {
+            comparables = areaMatched;
+        }
+    }
+
     const scored = comparables.map((item) => {
         let score = 0;
 

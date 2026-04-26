@@ -15,6 +15,7 @@ import {
 import { badRequest, notFound } from "../utils/errors.js";
 import { fetchComparableBundle } from "../services/comparableProviders/index.js";
 import { enrichComparableImages } from "../services/comparableImageEnrichment.js";
+import { propertyCategory } from "../services/propertyCategory.js";
 import { applyValuationPolicy } from "../services/valuationPolicy.js";
 
 
@@ -405,8 +406,9 @@ export const autofillExternalData = async (req, res) => {
         toNum(body.landArea) ??
         toNum(location.landArea) ??
         null;
+    const comparableCategory = propertyCategory(remaxCriteria);
     const subjectRoomText =
-        propertyDetails.roomCount !== undefined && propertyDetails.roomCount !== null
+        comparableCategory === "residential" && propertyDetails.roomCount !== undefined && propertyDetails.roomCount !== null
             ? `${propertyDetails.roomCount}${propertyDetails.salonCount !== undefined && propertyDetails.salonCount !== null ? `+${propertyDetails.salonCount}` : ""}`
             : null;
 
@@ -449,6 +451,8 @@ export const autofillExternalData = async (req, res) => {
                     city: remaxCriteria.city,
                     district: remaxCriteria.district,
                     neighborhood: remaxCriteria.neighborhood,
+                    reportType: remaxCriteria.reportType,
+                    propertyType: remaxCriteria.propertyType,
                     address: location.addressText,
                 },
                 baseUrl: publicBaseUrl(req),

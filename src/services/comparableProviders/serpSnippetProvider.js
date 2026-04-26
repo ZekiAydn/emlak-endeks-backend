@@ -1,5 +1,6 @@
 import { searchSerpApiOrganic } from "./hepsiemlakUrlResolver.js";
 import crypto from "node:crypto";
+import { comparableSearchText, propertyCategory } from "../propertyCategory.js";
 
 const ALLOWED_HOSTS = [
     "hepsiemlak.com",
@@ -20,12 +21,7 @@ function toNumber(value) {
 }
 
 function propertySearchText(criteria = {}) {
-    const text = cleanText(`${criteria.reportType || ""} ${criteria.propertyType || ""}`).toLocaleLowerCase("tr-TR");
-    if (text.includes("land") || text.includes("arsa") || text.includes("tarla")) return "arsa";
-    if (text.includes("commercial") || text.includes("ticari") || text.includes("ofis") || text.includes("dükkan") || text.includes("dukkan") || text.includes("işyeri") || text.includes("is yeri")) return "işyeri";
-    if (text.includes("villa")) return "villa";
-    if (text.includes("residence")) return "residence";
-    return "daire";
+    return comparableSearchText(criteria);
 }
 
 function sourceName(url) {
@@ -42,14 +38,33 @@ function sourceName(url) {
     }
 }
 
-function isAllowedListingUrl(url) {
+function isAllowedListingUrl(url, criteria = {}) {
     try {
         const parsed = new URL(url);
         const host = parsed.hostname.replace(/^www\./, "");
         if (!ALLOWED_HOSTS.some((allowed) => host === allowed || host.endsWith(`.${allowed}`))) return false;
         const text = `${parsed.pathname} ${parsed.search}`.toLocaleLowerCase("tr-TR");
         if (/(emlak-ofisi|projeler|emlak-yasam|kullanim-kosullari|gizlilik|yardim|kurumsal)/i.test(text)) return false;
-        return /(satilik|satılık|daire|arsa|isyeri|işyeri|villa|residence|konut|portfoy|ilan)/i.test(text);
+        const category = propertyCategory(criteria);
+
+        if (category === "land") {
+            if (/(daire|konut|villa|residence|isyeri|işyeri|ticari\/satilik)/i.test(text) && !/(arsa|arazi|tarla|bahce|bahçe|bag|bağ|zeytinlik)/i.test(text)) {
+                return false;
+            }
+            return /(satilik|satılık|arsa|arazi|tarla|bahce|bahçe|bag|bağ|zeytinlik|ilan|portfoy)/i.test(text);
+        }
+
+        if (category === "commercial") {
+            if (/(daire|konut|villa|residence|arsa|arazi|tarla)/i.test(text) && !/(isyeri|işyeri|ticari|ofis|dukkan|dükkan|magaza|mağaza|depo|fabrika|plaza|otel|atolye|imalathane)/i.test(text)) {
+                return false;
+            }
+            return /(satilik|satılık|isyeri|işyeri|ticari|ofis|dukkan|dükkan|magaza|mağaza|depo|fabrika|plaza|otel|atolye|imalathane|ilan|portfoy)/i.test(text);
+        }
+
+        if (/(arsa|arazi|tarla|isyeri|işyeri|ticari|ofis|dukkan|dükkan|magaza|mağaza|depo|fabrika)/i.test(text) && !/(daire|konut|villa|residence)/i.test(text)) {
+            return false;
+        }
+        return /(satilik|satılık|daire|villa|residence|konut|portfoy|ilan)/i.test(text);
     } catch {
         return false;
     }
@@ -110,7 +125,7 @@ function comparableUnitPrice(item) {
 
 function normalizeSerpComparable(item, criteria, index) {
     const link = cleanText(item?.link || item?.redirect_link || "");
-    if (!isAllowedListingUrl(link)) return null;
+    if (!isAllowedListingUrl(link, criteria)) return null;
 
     const title = cleanText(item?.title);
     const snippet = cleanText([
@@ -170,13 +185,17 @@ function buildQueries(criteria = {}) {
     const location = [criteria.city, criteria.district, criteria.neighborhood].filter(Boolean).join(" ");
     const type = propertySearchText(criteria);
     const base = `${location} satılık ${type}`.trim();
+    const category = propertyCategory(criteria);
+    const categoryTerms =
+        category === "land"
+            ? ["site:sahibinden.com/arsa", "site:hepsiemlak.com arsa", "site:remax.com.tr arsa-arazi", "site:emlakjet.com satılık arsa"]
+            : category === "commercial"
+              ? ["site:sahibinden.com/isyeri", "site:hepsiemlak.com işyeri", "site:remax.com.tr ticari", "site:emlakjet.com satılık işyeri"]
+              : ["site:sahibinden.com", "site:hepsiemlak.com", "site:remax.com.tr", "site:emlakjet.com"];
 
     return [
         `${base} fiyat`,
-        `site:sahibinden.com ${base}`,
-        `site:hepsiemlak.com ${base}`,
-        `site:remax.com.tr ${base}`,
-        `site:emlakjet.com ${base}`,
+        ...categoryTerms.map((term) => `${term} ${base}`),
     ].filter(Boolean);
 }
 
@@ -369,11 +388,13 @@ async function fetchSerpSnippetComparableBundle(criteria = {}, options = {}) {
         }
     }
 
-    const comparables = preferTargetRoom(uniqueComparables(
+    const category = propertyCategory(criteria);
+    const unique = uniqueComparables(
         organicItems
             .map((item, index) => normalizeSerpComparable(item, criteria, index))
             .filter(Boolean)
-    ), options.subjectRoomText).slice(0, 24);
+    );
+    const comparables = (category === "residential" ? preferTargetRoom(unique, options.subjectRoomText) : unique).slice(0, 24);
 
     if (comparables.length < 12) {
         warnings.push(`SERP_SNIPPET: 12 emsal için yeterli fiyatlı sonuç bulunamadı (${comparables.length})`);

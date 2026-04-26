@@ -1,5 +1,6 @@
 import dns from "node:dns/promises";
 import net from "node:net";
+import { comparableSearchText } from "./propertyCategory.js";
 
 const MAX_COMPARABLES = 20;
 const MAX_HTML_BYTES = 700_000;
@@ -433,12 +434,13 @@ async function collectGoogleImagePool(comparables, subjectLocation) {
     if (!key || !cx) return [];
 
     const locationText = subjectSearchText(subjectLocation);
+    const propertyText = comparableSearchText(subjectLocation) || "ilan";
     const firstTitles = comparables
         .slice(0, 4)
         .map((item) => item?.title)
         .filter(Boolean);
     const queries = uniqueTexts([
-        `${locationText} satılık daire ilan fotoğraf`,
+        `${locationText} satılık ${propertyText} ilan fotoğraf`,
         ...firstTitles.map((title) => `${title} ilan fotoğraf`),
     ]).slice(0, 3);
 

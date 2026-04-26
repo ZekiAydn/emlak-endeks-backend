@@ -1,3 +1,5 @@
+import { comparableSearchText, propertyCategory } from "../propertyCategory.js";
+
 const HEPSIEMLAK_BASE_URL = "https://www.hepsiemlak.com";
 
 function asciiTurkish(value) {
@@ -51,21 +53,11 @@ function uniq(values) {
 }
 
 function detectPathType(criteria = {}) {
+    const category = propertyCategory(criteria);
     const text = normalizeText(`${criteria.reportType || ""} ${criteria.propertyType || ""}`);
 
-    if (text.includes("land") || text.includes("arsa") || text.includes("tarla")) return "arsa";
-
-    if (
-        text.includes("commercial") ||
-        text.includes("ticari") ||
-        text.includes("ofis") ||
-        text.includes("dukkan") ||
-        text.includes("magaza") ||
-        text.includes("isyeri") ||
-        text.includes("is yeri")
-    ) {
-        return "isyeri";
-    }
+    if (category === "land") return "arsa";
+    if (category === "commercial") return "isyeri";
 
     if (text.includes("villa")) return "villa";
     if (text.includes("residence")) return "residence";
@@ -79,8 +71,8 @@ function detectPathType(criteria = {}) {
 function propertySearchText(criteria = {}) {
     const typeSlug = detectPathType(criteria);
 
-    if (typeSlug === "isyeri") return "satılık işyeri";
-    if (typeSlug === "arsa") return "satılık arsa";
+    if (typeSlug === "isyeri") return `satılık ${comparableSearchText(criteria)}`;
+    if (typeSlug === "arsa") return `satılık ${comparableSearchText(criteria)}`;
     if (typeSlug === "villa") return "satılık villa";
     if (typeSlug === "residence") return "satılık residence";
 
