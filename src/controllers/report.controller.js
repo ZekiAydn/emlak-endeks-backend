@@ -15,6 +15,7 @@ import {
 import { badRequest, notFound } from "../utils/errors.js";
 import { fetchComparableBundle } from "../services/comparableProviders/index.js";
 import { enrichComparableImages } from "../services/comparableImageEnrichment.js";
+import { applyValuationPolicy } from "../services/valuationPolicy.js";
 
 
 const mediaSelect = {
@@ -530,16 +531,26 @@ export const autofillExternalData = async (req, res) => {
         }
     }
 
-    const pricingUpdate = hasComparables && bundle?.priceBand
+    const policyPriceBand = hasComparables && bundle?.priceBand
+        ? applyValuationPolicy(bundle.priceBand, subjectArea)
+        : null;
+
+    const pricingUpdate = policyPriceBand
         ? {
-              minPrice: bundle.priceBand.minPrice,
-              expectedPrice: bundle.priceBand.expectedPrice,
-              maxPrice: bundle.priceBand.maxPrice,
-              minPricePerSqm: bundle.priceBand.minPricePerSqm,
-              expectedPricePerSqm: bundle.priceBand.expectedPricePerSqm,
-              maxPricePerSqm: bundle.priceBand.maxPricePerSqm,
-              confidence: bundle.priceBand.confidence,
-              note: report.pricingAnalysis?.note || bundle.priceBand.note,
+              minPrice: policyPriceBand.minPrice,
+              expectedPrice: policyPriceBand.expectedPrice,
+              maxPrice: policyPriceBand.maxPrice,
+              minPricePerSqm: policyPriceBand.minPricePerSqm,
+              expectedPricePerSqm: policyPriceBand.expectedPricePerSqm,
+              maxPricePerSqm: policyPriceBand.maxPricePerSqm,
+              confidence: policyPriceBand.confidence,
+              note: report.pricingAnalysis?.note || policyPriceBand.note,
+              aiJson: {
+                  ...(report.pricingAnalysis?.aiJson || {}),
+                  saleStrategy: policyPriceBand.saleStrategy,
+                  valuationPolicy: policyPriceBand.valuationPolicy,
+                  sourcePriceBand: bundle.priceBand,
+              },
           }
         : null;
 
@@ -672,7 +683,7 @@ export const aiPriceIndex = async (req, res) => {
         throw badRequest("Gemini analizi okunabilir JSON formatında üretemedi. Lütfen tekrar deneyin.", null, "GEMINI_JSON_PARSE_FAILED");
     }
 
-    const normalized = normalizePriceIndex(json, areaForSqm);
+    let normalized = normalizePriceIndex(json, areaForSqm);
     const compPrices = userComparables.map((c) => Number(c.price)).filter(Number.isFinite);
     const round1000 = (x) => Math.round(x / 1000) * 1000;
 
@@ -732,6 +743,15 @@ export const aiPriceIndex = async (req, res) => {
             : 0.35;
     }
 
+    normalized = applyValuationPolicy(
+        {
+            ...normalized,
+            expectedPrice: normalized.avgPrice,
+            expectedPricePerSqm: normalized.avgPricePerSqm,
+        },
+        areaForSqm
+    );
+
     ensureProjectionSections(normalized, {
         addressText,
         property: location,
@@ -752,25 +772,25 @@ export const aiPriceIndex = async (req, res) => {
                 upsert: {
                     create: {
                         minPrice: normalized.minPrice,
-                        expectedPrice: normalized.avgPrice,
+                        expectedPrice: normalized.expectedPrice ?? normalized.avgPrice,
                         maxPrice: normalized.maxPrice,
                         minPricePerSqm: normalized.minPricePerSqm,
-                        expectedPricePerSqm: normalized.avgPricePerSqm,
+                        expectedPricePerSqm: normalized.expectedPricePerSqm ?? normalized.avgPricePerSqm,
                         maxPricePerSqm: normalized.maxPricePerSqm,
                         confidence: normalized.confidence,
                         note,
-                        aiJson: { raw: json, rawText, normalized, meta: { at: new Date().toISOString(), review: "USER_CONTROLLED" } },
+                        aiJson: { raw: json, rawText, normalized, saleStrategy: normalized.saleStrategy, valuationPolicy: normalized.valuationPolicy, meta: { at: new Date().toISOString(), review: "USER_CONTROLLED" } },
                     },
                     update: {
                         minPrice: normalized.minPrice,
-                        expectedPrice: normalized.avgPrice,
+                        expectedPrice: normalized.expectedPrice ?? normalized.avgPrice,
                         maxPrice: normalized.maxPrice,
                         minPricePerSqm: normalized.minPricePerSqm,
-                        expectedPricePerSqm: normalized.avgPricePerSqm,
+                        expectedPricePerSqm: normalized.expectedPricePerSqm ?? normalized.avgPricePerSqm,
                         maxPricePerSqm: normalized.maxPricePerSqm,
                         confidence: normalized.confidence,
                         note,
-                        aiJson: { raw: json, rawText, normalized, meta: { at: new Date().toISOString(), review: "USER_CONTROLLED" } },
+                        aiJson: { raw: json, rawText, normalized, saleStrategy: normalized.saleStrategy, valuationPolicy: normalized.valuationPolicy, meta: { at: new Date().toISOString(), review: "USER_CONTROLLED" } },
                     },
                 },
             },

@@ -556,6 +556,25 @@ function selectRelevantHepsiemlakComparables(items, criteria = {}) {
     return unique;
 }
 
+function roomMatches(itemRoom, targetRoom) {
+    const current = normalizeText(itemRoom).replace(/\s+/g, "");
+    const target = normalizeText(targetRoom).replace(/\s+/g, "");
+    return !!current && !!target && current === target;
+}
+
+function preferTargetRoom(items, subjectRoomText) {
+    const target = String(subjectRoomText || "").trim();
+    if (!target) return items;
+
+    const exact = items.filter((item) => roomMatches(item.roomText, target));
+    if (exact.length >= 8) return exact;
+
+    const withoutStudio = items.filter((item) => !/stüdyo|studio|1\+0/i.test(String(item.roomText || "")));
+    if (/^[2-9]\+/.test(target) && withoutStudio.length >= 8) return withoutStudio;
+
+    return items;
+}
+
 function quantile(values, ratio) {
     const list = values.map(toNumber).filter(Number.isFinite).sort((a, b) => a - b);
     if (!list.length) return null;
@@ -864,14 +883,14 @@ async function fetchHepsiemlakHtmlComparableBundle(criteria = {}, options = {}) 
         ...(high.errors || []),
     ];
 
-    const rawComparables = selectRelevantHepsiemlakComparables(
+    const rawComparables = preferTargetRoom(selectRelevantHepsiemlakComparables(
         [
             ...(latest.comparables || []),
             ...(low.comparables || []),
             ...(high.comparables || []),
         ],
         criteria
-    );
+    ), options.subjectRoomText);
 
     const presentationPool = trimOutlierComparables(rawComparables).slice(0, maxItems);
 

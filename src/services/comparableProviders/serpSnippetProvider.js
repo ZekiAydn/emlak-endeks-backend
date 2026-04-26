@@ -5,6 +5,7 @@ const ALLOWED_HOSTS = [
     "hepsiemlak.com",
     "remax.com.tr",
     "emlakjet.com",
+    "sahibinden.com",
     "zingat.com",
 ];
 
@@ -33,6 +34,7 @@ function sourceName(url) {
         if (host.includes("hepsiemlak")) return "Hepsiemlak";
         if (host.includes("remax")) return "RE/MAX";
         if (host.includes("emlakjet")) return "Emlakjet";
+        if (host.includes("sahibinden")) return "Sahibinden";
         if (host.includes("zingat")) return "Zingat";
         return host;
     } catch {
@@ -45,8 +47,6 @@ function isAllowedListingUrl(url) {
         const parsed = new URL(url);
         const host = parsed.hostname.replace(/^www\./, "");
         if (!ALLOWED_HOSTS.some((allowed) => host === allowed || host.endsWith(`.${allowed}`))) return false;
-        if (/sahibinden/i.test(host)) return false;
-
         const text = `${parsed.pathname} ${parsed.search}`.toLocaleLowerCase("tr-TR");
         if (/(emlak-ofisi|projeler|emlak-yasam|kullanim-kosullari|gizlilik|yardim|kurumsal)/i.test(text)) return false;
         return /(satilik|satılık|daire|arsa|isyeri|işyeri|villa|residence|konut|portfoy|ilan)/i.test(text);
@@ -173,10 +173,31 @@ function buildQueries(criteria = {}) {
 
     return [
         `${base} fiyat`,
+        `site:sahibinden.com ${base}`,
         `site:hepsiemlak.com ${base}`,
         `site:remax.com.tr ${base}`,
         `site:emlakjet.com ${base}`,
     ].filter(Boolean);
+}
+
+function roomMatches(itemRoom, targetRoom) {
+    const current = String(itemRoom || "").replace(/\s+/g, "").toLocaleLowerCase("tr-TR");
+    const target = String(targetRoom || "").replace(/\s+/g, "").toLocaleLowerCase("tr-TR");
+    if (!target || !current) return false;
+    return current === target;
+}
+
+function preferTargetRoom(comparables, subjectRoomText) {
+    const target = String(subjectRoomText || "").trim();
+    if (!target) return comparables;
+
+    const exact = comparables.filter((item) => roomMatches(item.roomText, target));
+    if (exact.length >= 8) return exact;
+
+    const withoutStudio = comparables.filter((item) => !/stüdyo|studio|1\+0/i.test(String(item.roomText || "")));
+    if (/^[2-9]\+/.test(target) && withoutStudio.length >= 8) return withoutStudio;
+
+    return comparables;
 }
 
 function chooseMidComparables(sortedItems, count, excludedKeys) {
@@ -333,7 +354,7 @@ async function fetchSerpSnippetComparableBundle(criteria = {}, options = {}) {
         };
     }
 
-    const maxQueries = Math.max(1, Math.min(Number(process.env.SERP_SNIPPET_MAX_QUERIES || 3), 4));
+    const maxQueries = Math.max(1, Math.min(Number(process.env.SERP_SNIPPET_MAX_QUERIES || 4), 5));
     const maxResults = Math.max(5, Math.min(Number(process.env.SERP_SNIPPET_MAX_RESULTS || process.env.SERPAPI_MAX_RESULTS || 10), 20));
     const queries = buildQueries(criteria).slice(0, maxQueries);
     const warnings = [];
@@ -348,11 +369,11 @@ async function fetchSerpSnippetComparableBundle(criteria = {}, options = {}) {
         }
     }
 
-    const comparables = uniqueComparables(
+    const comparables = preferTargetRoom(uniqueComparables(
         organicItems
             .map((item, index) => normalizeSerpComparable(item, criteria, index))
             .filter(Boolean)
-    ).slice(0, 24);
+    ), options.subjectRoomText).slice(0, 24);
 
     if (comparables.length < 12) {
         warnings.push(`SERP_SNIPPET: 12 emsal için yeterli fiyatlı sonuç bulunamadı (${comparables.length})`);

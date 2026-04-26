@@ -4,7 +4,7 @@ import net from "node:net";
 const MAX_COMPARABLES = 20;
 const MAX_HTML_BYTES = 700_000;
 const FETCH_TIMEOUT_MS = 7000;
-const REAL_IMAGE_RESERVE_FOR_MOCKS = 2;
+const REAL_IMAGE_RESERVE_FOR_MOCKS = 0;
 
 function toText(value) {
     return typeof value === "string" ? value.trim() : "";
@@ -488,7 +488,7 @@ function fillMissingImages(results, extraImagePool = [], baseUrl) {
         ...extraImagePool,
     ]).filter((url) => !used.has(imageKey(url)));
 
-    const targetRealCount = Math.min(rows.length, Math.max(0, rows.length - REAL_IMAGE_RESERVE_FOR_MOCKS), 10);
+    const targetRealCount = Math.min(rows.length, Math.max(0, rows.length - REAL_IMAGE_RESERVE_FOR_MOCKS));
     let realCount = rows.filter((item) => item.imageUrl && item.imageSource !== "brand-mock").length;
     let assignedPoolImageCount = 0;
 

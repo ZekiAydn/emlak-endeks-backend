@@ -242,6 +242,36 @@ async function fetchParcelLookup({ city, district, neighborhood, blockNo, parcel
     });
 }
 
+function mapAdministrativeFeatures(features) {
+    return (Array.isArray(features) ? features : [])
+        .map((feature) => ({
+            id: feature?.properties?.id ?? feature?.id ?? null,
+            name: feature?.properties?.text || feature?.properties?.ad || feature?.properties?.name || null,
+        }))
+        .filter((item) => item.id !== null && item.name)
+        .sort((a, b) => String(a.name).localeCompare(String(b.name), "tr"));
+}
+
+async function fetchCities() {
+    const data = await fetchJson(IL_LIST_URL);
+    return mapAdministrativeFeatures(data?.features);
+}
+
+async function fetchDistricts(cityId) {
+    if (!cityId) return [];
+    const data = await fetchJson(`${ILCE_LIST_URL}/${encodeURIComponent(cityId)}`);
+    return mapAdministrativeFeatures(data?.features);
+}
+
+async function fetchNeighborhoods(districtId) {
+    if (!districtId) return [];
+    const data = await fetchJson(`${MAHALLE_LIST_URL}/${encodeURIComponent(districtId)}`);
+    return mapAdministrativeFeatures(data?.features);
+}
+
 export {
     fetchParcelLookup,
+    fetchCities,
+    fetchDistricts,
+    fetchNeighborhoods,
 };
