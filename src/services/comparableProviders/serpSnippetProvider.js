@@ -1,6 +1,6 @@
 import { searchSerpApiOrganic } from "./hepsiemlakUrlResolver.js";
 import crypto from "node:crypto";
-import { comparableSearchText, propertyCategory } from "../propertyCategory.js";
+import { comparableSearchText, propertyCategory, valuationType } from "../propertyCategory.js";
 
 const ALLOWED_HOSTS = [
     "hepsiemlak.com",
@@ -53,20 +53,20 @@ function isAllowedListingUrl(url, criteria = {}) {
             if (/(daire|konut|villa|residence|isyeri|işyeri|ticari\/satilik)/i.test(text) && !/(arsa|arazi|tarla|bahce|bahçe|bag|bağ|zeytinlik)/i.test(text)) {
                 return false;
             }
-            return /(satilik|satılık|arsa|arazi|tarla|bahce|bahçe|bag|bağ|zeytinlik|ilan|portfoy)/i.test(text);
+            return /(satilik|satılık|kiralik|kiralık|arsa|arazi|tarla|bahce|bahçe|bag|bağ|zeytinlik|ilan|portfoy)/i.test(text);
         }
 
         if (category === "commercial") {
             if (/(daire|konut|villa|residence|arsa|arazi|tarla)/i.test(text) && !/(isyeri|işyeri|ticari|ofis|dukkan|dükkan|magaza|mağaza|depo|fabrika|plaza|otel|atolye|imalathane)/i.test(text)) {
                 return false;
             }
-            return /(satilik|satılık|isyeri|işyeri|ticari|ofis|dukkan|dükkan|magaza|mağaza|depo|fabrika|plaza|otel|atolye|imalathane|ilan|portfoy)/i.test(text);
+            return /(satilik|satılık|kiralik|kiralık|isyeri|işyeri|ticari|ofis|dukkan|dükkan|magaza|mağaza|depo|fabrika|plaza|otel|atolye|imalathane|ilan|portfoy)/i.test(text);
         }
 
         if (/(arsa|arazi|tarla|isyeri|işyeri|ticari|ofis|dukkan|dükkan|magaza|mağaza|depo|fabrika)/i.test(text) && !/(daire|konut|villa|residence)/i.test(text)) {
             return false;
         }
-        return /(satilik|satılık|daire|villa|residence|konut|portfoy|ilan)/i.test(text);
+        return /(satilik|satılık|kiralik|kiralık|daire|villa|residence|konut|portfoy|ilan)/i.test(text);
     } catch {
         return false;
     }
@@ -185,8 +185,9 @@ function uniqueComparables(items) {
 
 function buildQueries(criteria = {}) {
     const location = [criteria.city, criteria.district, criteria.neighborhood].filter(Boolean).join(" ");
+    const transaction = valuationType(criteria) === "rental" ? "kiralık" : "satılık";
     const type = propertySearchText(criteria);
-    const base = `${location} satılık ${type}`.trim();
+    const base = `${location} ${transaction} ${type}`.trim();
     const category = propertyCategory(criteria);
     const categoryTerms =
         category === "land"
@@ -196,7 +197,7 @@ function buildQueries(criteria = {}) {
               : ["site:sahibinden.com", "site:hepsiemlak.com", "site:remax.com.tr", "site:emlakjet.com"];
 
     return [
-        `${base} fiyat`,
+        `${base} ${transaction === "kiralık" ? "kira" : "fiyat"}`,
         ...categoryTerms.map((term) => `${term} ${base}`),
     ].filter(Boolean);
 }

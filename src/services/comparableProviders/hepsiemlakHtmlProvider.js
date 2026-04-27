@@ -179,6 +179,8 @@ function isLikelyListingHref(href) {
     return (
         lower.includes("-satilik") ||
         lower.includes("satilik-") ||
+        lower.includes("-kiralik") ||
+        lower.includes("kiralik-") ||
         lower.includes("/daire") ||
         lower.includes("/villa") ||
         lower.includes("/arsa") ||

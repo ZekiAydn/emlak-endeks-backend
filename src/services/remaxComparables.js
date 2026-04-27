@@ -1,5 +1,5 @@
 import { getBrowser } from "./headlessBrowser.js";
-import { propertyCategory } from "./propertyCategory.js";
+import { propertyCategory, valuationType } from "./propertyCategory.js";
 
 const REMAX_BASE_URL = "https://remax.com.tr";
 const GROUP_SIZE = 6;
@@ -151,6 +151,7 @@ function buildSearchUrl(criteria, { withNeighborhood = true, sort = "13,desc" } 
     const citySlug = detectCitySlug(criteria.city, criteria.district);
     const districtSlug = slugify(criteria.district);
     const category = reportCategory(criteria);
+    const transactionSlug = valuationType(criteria) === "rental" ? "kiralik" : "satilik";
     const subcategorySlug =
         category === "commercial"
             ? detectCommercialSubcategorySlug(criteria.propertyType)
@@ -160,10 +161,10 @@ function buildSearchUrl(criteria, { withNeighborhood = true, sort = "13,desc" } 
 
     const path =
         category === "commercial"
-            ? `/tr/ticari/satilik/${subcategorySlug}/${citySlug}/${districtSlug}`
+            ? `/tr/ticari/${transactionSlug}/${subcategorySlug}/${citySlug}/${districtSlug}`
             : category === "land"
-              ? `/tr/arsa-arazi/satilik/${subcategorySlug ? `${subcategorySlug}/` : ""}${citySlug}/${districtSlug}`
-              : `/tr/konut/satilik/${subcategorySlug}/${citySlug}/${districtSlug}`;
+              ? `/tr/arsa-arazi/${transactionSlug}/${subcategorySlug ? `${subcategorySlug}/` : ""}${citySlug}/${districtSlug}`
+              : `/tr/konut/${transactionSlug}/${subcategorySlug}/${citySlug}/${districtSlug}`;
     const url = new URL(`${REMAX_BASE_URL}${path}`);
     url.searchParams.set("currencyId", "1");
     url.searchParams.set("view", "full-card");

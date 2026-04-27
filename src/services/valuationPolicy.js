@@ -41,7 +41,52 @@ function saleStrategy() {
     };
 }
 
-function applyValuationPolicy(input = {}, areaHint = null) {
+function rentalStrategy() {
+    return {
+        low: {
+            label: "Hızlı Kiralama",
+            priceKey: "minPrice",
+            pricePerSqmKey: "minPricePerSqm",
+            saleTimeLabel: "1-2 hafta",
+        },
+        mid: {
+            label: "Piyasa Kirası",
+            priceKey: "expectedPrice",
+            pricePerSqmKey: "expectedPricePerSqm",
+            saleTimeLabel: "2-4 hafta",
+        },
+        high: {
+            label: "Yüksek Kira Beklentisi",
+            priceKey: "maxPrice",
+            pricePerSqmKey: "maxPricePerSqm",
+            saleTimeLabel: "1-2 ay",
+        },
+    };
+}
+
+function rentalEstimateFromSale(expectedPrice, areaHint = null) {
+    const price = toNumber(expectedPrice);
+    if (price === null || price <= 0) return null;
+
+    const minRent = roundPrice(price * 0.0037);
+    const expectedRent = roundPrice(price * 0.0042);
+    const maxRent = roundPrice(price * 0.0048);
+    const area = toNumber(areaHint);
+
+    return {
+        minRent,
+        expectedRent,
+        maxRent,
+        minRentPerSqm: area && area > 0 ? roundSqm(minRent / area) : null,
+        expectedRentPerSqm: area && area > 0 ? roundSqm(expectedRent / area) : null,
+        maxRentPerSqm: area && area > 0 ? roundSqm(maxRent / area) : null,
+        grossYieldPct: 5.0,
+        note: "Satış değeri üzerinden aylık brüt kira karşılığı yaklaşık %4,4-%5,8 yıllık brüt getiri bandıyla tahmin edilmiştir.",
+    };
+}
+
+function applyValuationPolicy(input = {}, areaHint = null, valuationType = "SALE") {
+    const isRental = String(valuationType || "").toUpperCase() === "RENTAL";
     const area = toNumber(areaHint);
     const sourceMinPrice = toNumber(input.minPrice);
     const sourceMinSqm = toNumber(input.minPricePerSqm);
@@ -53,15 +98,15 @@ function applyValuationPolicy(input = {}, areaHint = null) {
 
     if (minPrice === null) return {
         ...input,
-        saleStrategy: saleStrategy(),
+        saleStrategy: isRental ? rentalStrategy() : saleStrategy(),
         valuationPolicy: {
-            note: policyNote(),
+            note: isRental ? "Kira bandı farklı pazarlama süreleri için oluşturulmuştur." : policyNote(),
         },
     };
 
     minPrice = roundPrice(minPrice);
-    const expectedPrice = roundPrice(minPrice * 1.15);
-    const maxPrice = roundPrice(minPrice * 1.3);
+    const expectedPrice = roundPrice(minPrice * (isRental ? 1.1 : 1.15));
+    const maxPrice = roundPrice(minPrice * (isRental ? 1.22 : 1.3));
 
     const next = {
         ...input,
@@ -69,11 +114,14 @@ function applyValuationPolicy(input = {}, areaHint = null) {
         expectedPrice,
         maxPrice,
         avgPrice: expectedPrice,
-        saleStrategy: saleStrategy(),
+        saleStrategy: isRental ? rentalStrategy() : saleStrategy(),
         valuationPolicy: {
-            note: policyNote(),
+            note: isRental ? "Kira bandı farklı pazarlama süreleri için oluşturulmuştur." : policyNote(),
         },
+        valuationType: isRental ? "RENTAL" : "SALE",
     };
+
+    if (!isRental) next.rentalEstimate = input.rentalEstimate || rentalEstimateFromSale(expectedPrice, area);
 
     if (area && area > 0) {
         next.minPricePerSqm = roundSqm(minPrice / area);
@@ -90,13 +138,16 @@ function applyValuationPolicy(input = {}, areaHint = null) {
         }
     }
 
+    const noteText = next.valuationPolicy.note;
     const existingNote = String(input.note || "").trim();
-    next.note = existingNote ? `${existingNote}\n\n${policyNote()}` : policyNote();
+    next.note = existingNote ? `${existingNote}\n\n${noteText}` : noteText;
 
     return next;
 }
 
 export {
     applyValuationPolicy,
+    rentalEstimateFromSale,
+    rentalStrategy,
     saleStrategy,
 };

@@ -21,6 +21,62 @@ const router = Router();
 
 router.use(authRequired, requireRole("ADMIN"));
 
+function monthBounds(now = new Date()) {
+    const year = now.getUTCFullYear();
+    const month = now.getUTCMonth();
+    return {
+        start: new Date(Date.UTC(year, month, 1, 0, 0, 0, 0)),
+        end: new Date(Date.UTC(year, month + 1, 1, 0, 0, 0, 0)),
+    };
+}
+
+async function reportStatsByUserIds(userIds = []) {
+    if (!userIds.length) return new Map();
+
+    const { start, end } = monthBounds();
+    const [totalRows, activeRows, deletedRows, thisMonthRows] = await Promise.all([
+        prisma.report.groupBy({
+            by: ["userId"],
+            where: { userId: { in: userIds } },
+            _count: { _all: true },
+        }),
+        prisma.report.groupBy({
+            by: ["userId"],
+            where: { userId: { in: userIds }, isDeleted: false },
+            _count: { _all: true },
+        }),
+        prisma.report.groupBy({
+            by: ["userId"],
+            where: { userId: { in: userIds }, isDeleted: true },
+            _count: { _all: true },
+        }),
+        prisma.report.groupBy({
+            by: ["userId"],
+            where: {
+                userId: { in: userIds },
+                createdAt: { gte: start, lt: end },
+            },
+            _count: { _all: true },
+        }),
+    ]);
+
+    const stats = new Map(userIds.map((id) => [id, { total: 0, active: 0, deleted: 0, thisMonth: 0 }]));
+    const applyRows = (rows, key) => {
+        rows.forEach((row) => {
+            const current = stats.get(row.userId) || { total: 0, active: 0, deleted: 0, thisMonth: 0 };
+            current[key] = row._count?._all || 0;
+            stats.set(row.userId, current);
+        });
+    };
+
+    applyRows(totalRows, "total");
+    applyRows(activeRows, "active");
+    applyRows(deletedRows, "deleted");
+    applyRows(thisMonthRows, "thisMonth");
+
+    return stats;
+}
+
 // list
 router.get("/users", async (req, res) => {
     const take = Math.min(Number(req.query.take || 50), 100);
@@ -59,7 +115,8 @@ router.get("/users", async (req, res) => {
         },
     });
 
-    res.json(items);
+    const stats = await reportStatsByUserIds(items.map((item) => item.id));
+    res.json(items.map((item) => ({ ...item, reportStats: stats.get(item.id) })));
 });
 
 router.post("/users", async (req, res) => {
@@ -143,7 +200,8 @@ router.get("/users/:id", async (req, res) => {
     });
 
     if (!user) throw notFound("Kullanıcı bulunamadı.");
-    res.json(user);
+    const stats = await reportStatsByUserIds([id]);
+    res.json({ ...user, reportStats: stats.get(id) });
 });
 
 // update profile/role/status

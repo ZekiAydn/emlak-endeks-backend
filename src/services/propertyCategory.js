@@ -43,6 +43,12 @@ export function propertyCategory(criteria = {}) {
     return "residential";
 }
 
+export function valuationType(criteria = {}) {
+    const text = normalizePropertyText(criteria.valuationType || criteria.listingType || criteria.transactionType);
+    if (text.includes("rental") || text.includes("rent") || text.includes("kiralik")) return "rental";
+    return "sale";
+}
+
 export function commercialSearchText(criteria = {}) {
     const text = normalizePropertyText(criteria.propertyType);
     if (/\b(office|ofis|buro)\b/.test(text)) return "ofis";

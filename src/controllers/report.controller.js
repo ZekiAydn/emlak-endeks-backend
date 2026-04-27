@@ -75,6 +75,13 @@ function reportTypeValue(value) {
     return "RESIDENTIAL";
 }
 
+function valuationTypeValue(...values) {
+    const found = values.find((value) => value !== undefined && value !== null && value !== "");
+    const text = cleanString(found || "SALE").toUpperCase();
+    if (["RENTAL", "RENT", "KIRALIK", "KİRALIK"].includes(text)) return "RENTAL";
+    return "SALE";
+}
+
 function reportLocationData(body = {}, property = null) {
     return {
         reportType: reportTypeValue(body.reportType),
@@ -404,6 +411,7 @@ export const autofillExternalData = async (req, res) => {
         neighborhood: cleanString(body.neighborhood ?? location.neighborhood ?? ""),
         propertyType: cleanString(body.propertyType ?? buildingDetails.propertyType ?? ""),
         reportType: cleanString(body.reportType ?? location.reportType ?? report.reportType ?? ""),
+        valuationType: valuationTypeValue(body.valuationType, body.comparablesJson?.valuationType, report.comparablesJson?.valuationType),
     };
     const parcelCriteria = {
         city: cleanString(body.tkgmCity ?? location.tkgmCity ?? remaxCriteria.city),
@@ -505,6 +513,8 @@ export const autofillExternalData = async (req, res) => {
 
     const nextComparablesJson = {
         ...(report.comparablesJson || {}),
+        ...(body.comparablesJson || {}),
+        valuationType: remaxCriteria.valuationType,
         ...(hasComparables
             ? {
                   comparables: bundle.comparables,
@@ -551,7 +561,7 @@ export const autofillExternalData = async (req, res) => {
     }
 
     const policyPriceBand = hasComparables && bundle?.priceBand
-        ? applyValuationPolicy(bundle.priceBand, subjectArea)
+        ? applyValuationPolicy(bundle.priceBand, subjectArea, remaxCriteria.valuationType)
         : null;
     const inferredLandArea = comparableCategory === "land" && subjectArea && subjectArea > 0 ? subjectArea : null;
 
@@ -569,6 +579,8 @@ export const autofillExternalData = async (req, res) => {
                   ...(report.pricingAnalysis?.aiJson || {}),
                   saleStrategy: policyPriceBand.saleStrategy,
                   valuationPolicy: policyPriceBand.valuationPolicy,
+                  rentalEstimate: policyPriceBand.rentalEstimate || null,
+                  valuationType: remaxCriteria.valuationType,
                   sourcePriceBand: bundle.priceBand,
               },
           }
@@ -626,6 +638,7 @@ export const aiPriceIndex = async (req, res) => {
     const body = req.body || {};
     const location = reportLocationSource(report);
     const addressText = body.addressText ?? location.addressText ?? null;
+    const valuationType = valuationTypeValue(body.valuationType, body.comparablesJson?.valuationType, report.comparablesJson?.valuationType);
 
     const propertyDetails = {
         ...(report.propertyDetails || {}),
@@ -690,6 +703,7 @@ export const aiPriceIndex = async (req, res) => {
             buildingCondition: buildingDetails.buildingCondition ?? null,
         },
         comparables: userComparables,
+        valuationType,
     };
 
     const { rawText, json } = await textToJson({
@@ -770,7 +784,8 @@ export const aiPriceIndex = async (req, res) => {
             expectedPrice: normalized.avgPrice,
             expectedPricePerSqm: normalized.avgPricePerSqm,
         },
-        areaForSqm
+        areaForSqm,
+        valuationType
     );
 
     const note = buildAiNote(normalized);
@@ -791,7 +806,7 @@ export const aiPriceIndex = async (req, res) => {
                         maxPricePerSqm: normalized.maxPricePerSqm,
                         confidence: normalized.confidence,
                         note,
-                        aiJson: { raw: json, rawText, normalized, saleStrategy: normalized.saleStrategy, valuationPolicy: normalized.valuationPolicy, meta: { at: new Date().toISOString(), review: "USER_CONTROLLED" } },
+                        aiJson: { raw: json, rawText, normalized, saleStrategy: normalized.saleStrategy, valuationPolicy: normalized.valuationPolicy, rentalEstimate: normalized.rentalEstimate || null, valuationType, meta: { at: new Date().toISOString(), review: "USER_CONTROLLED" } },
                     },
                     update: {
                         minPrice: normalized.minPrice,
@@ -802,12 +817,14 @@ export const aiPriceIndex = async (req, res) => {
                         maxPricePerSqm: normalized.maxPricePerSqm,
                         confidence: normalized.confidence,
                         note,
-                        aiJson: { raw: json, rawText, normalized, saleStrategy: normalized.saleStrategy, valuationPolicy: normalized.valuationPolicy, meta: { at: new Date().toISOString(), review: "USER_CONTROLLED" } },
+                        aiJson: { raw: json, rawText, normalized, saleStrategy: normalized.saleStrategy, valuationPolicy: normalized.valuationPolicy, rentalEstimate: normalized.rentalEstimate || null, valuationType, meta: { at: new Date().toISOString(), review: "USER_CONTROLLED" } },
                     },
                 },
             },
             comparablesJson: {
                 ...(report.comparablesJson || {}),
+                ...(body.comparablesJson || {}),
+                valuationType,
                 comparables: userComparables,
                 priceIndex: {
                     at: new Date().toISOString(),

@@ -1,4 +1,4 @@
-import { comparableSearchText, propertyCategory } from "../propertyCategory.js";
+import { comparableSearchText, propertyCategory, valuationType } from "../propertyCategory.js";
 
 const HEPSIEMLAK_BASE_URL = "https://www.hepsiemlak.com";
 
@@ -70,13 +70,14 @@ function detectPathType(criteria = {}) {
 
 function propertySearchText(criteria = {}) {
     const typeSlug = detectPathType(criteria);
+    const transaction = valuationType(criteria) === "rental" ? "kiralık" : "satılık";
 
-    if (typeSlug === "isyeri") return `satılık ${comparableSearchText(criteria)}`;
-    if (typeSlug === "arsa") return `satılık ${comparableSearchText(criteria)}`;
-    if (typeSlug === "villa") return "satılık villa";
-    if (typeSlug === "residence") return "satılık residence";
+    if (typeSlug === "isyeri") return `${transaction} ${comparableSearchText(criteria)}`;
+    if (typeSlug === "arsa") return `${transaction} ${comparableSearchText(criteria)}`;
+    if (typeSlug === "villa") return `${transaction} villa`;
+    if (typeSlug === "residence") return `${transaction} residence`;
 
-    return "satılık daire";
+    return `${transaction} daire`;
 }
 
 function withSort(url, sortField, sortDirection) {
@@ -93,30 +94,31 @@ function buildHepsiemlakCandidateUrls(criteria = {}, { sortField = null, sortDir
     const districtSlug = slugify(criteria.district);
     const neighborhoodSlug = slugifyNeighborhood(criteria.neighborhood);
     const typeSlug = detectPathType(criteria);
+    const transactionSlug = valuationType(criteria) === "rental" ? "kiralik" : "satilik";
 
     const paths = [];
 
     if (neighborhoodSlug) {
-        paths.push(`/${neighborhoodSlug}-satilik/${typeSlug}`);
-        paths.push(`/${neighborhoodSlug}-satilik`);
+        paths.push(`/${neighborhoodSlug}-${transactionSlug}/${typeSlug}`);
+        paths.push(`/${neighborhoodSlug}-${transactionSlug}`);
         paths.push(`/${neighborhoodSlug}/${typeSlug}`);
 
         if (districtSlug) {
-            paths.push(`/${districtSlug}-${neighborhoodSlug}-satilik/${typeSlug}`);
-            paths.push(`/${districtSlug}-${neighborhoodSlug}-satilik`);
+            paths.push(`/${districtSlug}-${neighborhoodSlug}-${transactionSlug}/${typeSlug}`);
+            paths.push(`/${districtSlug}-${neighborhoodSlug}-${transactionSlug}`);
             paths.push(`/${districtSlug}-${neighborhoodSlug}/${typeSlug}`);
         }
     }
 
     if (districtSlug) {
-        paths.push(`/${districtSlug}-satilik/${typeSlug}`);
-        paths.push(`/${districtSlug}-satilik`);
+        paths.push(`/${districtSlug}-${transactionSlug}/${typeSlug}`);
+        paths.push(`/${districtSlug}-${transactionSlug}`);
         paths.push(`/${districtSlug}/${typeSlug}`);
     }
 
     if (citySlug) {
-        paths.push(`/${citySlug}-satilik/${typeSlug}`);
-        paths.push(`/${citySlug}-satilik`);
+        paths.push(`/${citySlug}-${transactionSlug}/${typeSlug}`);
+        paths.push(`/${citySlug}-${transactionSlug}`);
         paths.push(`/${citySlug}/${typeSlug}`);
     }
 
@@ -151,6 +153,7 @@ function isUsefulHepsiemlakUrl(url) {
 
     return (
         lower.includes("satilik") ||
+        lower.includes("kiralik") ||
         lower.includes("/daire") ||
         lower.includes("/arsa") ||
         lower.includes("/isyeri") ||
