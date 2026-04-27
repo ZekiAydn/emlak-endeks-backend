@@ -1,9 +1,15 @@
 import { Buffer } from "node:buffer";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
 
 const WIDTH = 640;
 const HEIGHT = 360;
 const DEFAULT_SIZE = "640x360";
+const DEFAULT_COMPARABLE_IMAGE = readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "../assets/no-comparable-image.png")
+);
 
 let crcTable = null;
 
@@ -128,13 +134,10 @@ function googleMapsKey() {
 }
 
 export function mockComparableImage(req, res) {
-    const variant = Number(req.query.variant || 1);
-    const png = drawMockPng(variant);
-
     res.setHeader("content-type", "image/png");
     res.setHeader("cache-control", "public, max-age=86400");
     res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-    res.send(png);
+    res.send(DEFAULT_COMPARABLE_IMAGE);
 }
 
 export async function streetViewComparableImage(req, res) {

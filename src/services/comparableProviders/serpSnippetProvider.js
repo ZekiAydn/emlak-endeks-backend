@@ -9,6 +9,8 @@ const ALLOWED_HOSTS = [
     "sahibinden.com",
     "zingat.com",
 ];
+const GROUP_SIZE = 6;
+const MAX_OUTPUT_COMPARABLES = 24;
 
 function cleanText(value) {
     return String(value || "").replace(/\s+/g, " ").trim();
@@ -232,15 +234,21 @@ function buildGroups(comparables) {
         .slice()
         .sort((a, b) => toNumber(a.price) - toNumber(b.price));
 
-    const low = priced.slice(0, 4);
-    const high = priced.length <= 4 ? [] : priced.slice(Math.max(4, priced.length - 4));
+    const low = priced.slice(0, GROUP_SIZE);
+    const high = priced.length <= GROUP_SIZE ? [] : priced.slice(Math.max(GROUP_SIZE, priced.length - GROUP_SIZE));
     const used = new Set([...low, ...high].map((item) => item.externalId || item.sourceUrl).filter(Boolean));
-    const mid = chooseMidComparables(priced, 4, used);
+    const mid = chooseMidComparables(priced, GROUP_SIZE, used);
+    const stale = comparables
+        .filter((item) => Number.isFinite(toNumber(item?.listingAgeDays)))
+        .slice()
+        .sort((a, b) => toNumber(b.listingAgeDays) - toNumber(a.listingAgeDays))
+        .slice(0, GROUP_SIZE);
 
     return {
         low: low.map((item) => item.externalId || item.sourceUrl).filter(Boolean),
         mid: mid.map((item) => item.externalId || item.sourceUrl).filter(Boolean),
         high: high.map((item) => item.externalId || item.sourceUrl).filter(Boolean),
+        stale: stale.map((item) => item.externalId || item.sourceUrl).filter(Boolean),
     };
 }
 
@@ -254,6 +262,32 @@ function enrichComparablesWithGroups(comparables, groups) {
         ...item,
         group: tagged.get(item.externalId || item.sourceUrl) || item.group || null,
     }));
+}
+
+function orderComparablesForOutput(comparables, groups) {
+    const byKey = new Map(
+        comparables
+            .map((item) => [item.externalId || item.sourceUrl, item])
+            .filter(([key]) => !!key)
+    );
+    const ordered = [];
+    const used = new Set();
+
+    ["low", "mid", "high", "stale"].forEach((group) => {
+        (groups?.[group] || []).forEach((key) => {
+            const item = byKey.get(key);
+            if (!item || used.has(key)) return;
+            ordered.push(item);
+            used.add(key);
+        });
+    });
+
+    const remainder = comparables.filter((item) => {
+        const key = item.externalId || item.sourceUrl;
+        return key ? !used.has(key) : true;
+    });
+
+    return [...ordered, ...remainder].slice(0, MAX_OUTPUT_COMPARABLES);
 }
 
 function quantile(values, ratio) {
@@ -394,13 +428,14 @@ async function fetchSerpSnippetComparableBundle(criteria = {}, options = {}) {
             .map((item, index) => normalizeSerpComparable(item, criteria, index))
             .filter(Boolean)
     );
-    const comparables = (category === "residential" ? preferTargetRoom(unique, options.subjectRoomText) : unique).slice(0, 24);
+    const candidateComparables = category === "residential" ? preferTargetRoom(unique, options.subjectRoomText) : unique;
 
-    if (comparables.length < 12) {
-        warnings.push(`SERP_SNIPPET: 12 emsal için yeterli fiyatlı sonuç bulunamadı (${comparables.length})`);
+    if (candidateComparables.length < 12) {
+        warnings.push(`SERP_SNIPPET: 12 emsal için yeterli fiyatlı sonuç bulunamadı (${candidateComparables.length})`);
     }
 
-    const groups = buildGroups(comparables);
+    const groups = buildGroups(candidateComparables);
+    const comparables = orderComparablesForOutput(candidateComparables, groups);
     const enriched = enrichComparablesWithGroups(comparables, groups);
     const marketProjection = comparables.length ? buildMarketProjection(enriched) : null;
     const regionalStats = comparables.length ? buildRegionalStats(criteria, enriched, options.parcelLookup, marketProjection, options.subjectArea) : null;

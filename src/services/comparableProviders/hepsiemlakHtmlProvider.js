@@ -2,6 +2,8 @@ import * as cheerio from "cheerio";
 import { resolveHepsiemlakUrls, withSort } from "./hepsiemlakUrlResolver.js";
 
 const HEPSIEMLAK_BASE_URL = "https://www.hepsiemlak.com";
+const GROUP_SIZE = 6;
+const MAX_OUTPUT_COMPARABLES = 24;
 
 const REQUEST_HEADERS = {
     accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
@@ -603,15 +605,21 @@ function buildGroups(comparables) {
         .slice()
         .sort((a, b) => toNumber(a.price) - toNumber(b.price));
 
-    const low = priced.slice(0, 4);
-    const high = priced.slice(Math.max(0, priced.length - 4));
+    const low = priced.slice(0, GROUP_SIZE);
+    const high = priced.length <= GROUP_SIZE ? [] : priced.slice(Math.max(GROUP_SIZE, priced.length - GROUP_SIZE));
     const used = new Set([...low, ...high].map((item) => item.externalId || item.sourceUrl).filter(Boolean));
-    const mid = chooseMidComparables(priced, 4, used);
+    const mid = chooseMidComparables(priced, GROUP_SIZE, used);
+    const stale = comparables
+        .filter((item) => Number.isFinite(toNumber(item?.listingAgeDays)))
+        .slice()
+        .sort((a, b) => toNumber(b.listingAgeDays) - toNumber(a.listingAgeDays))
+        .slice(0, GROUP_SIZE);
 
     return {
         low: low.map((item) => item.externalId || item.sourceUrl).filter(Boolean),
         mid: mid.map((item) => item.externalId || item.sourceUrl).filter(Boolean),
         high: high.map((item) => item.externalId || item.sourceUrl).filter(Boolean),
+        stale: stale.map((item) => item.externalId || item.sourceUrl).filter(Boolean),
     };
 }
 
@@ -626,6 +634,32 @@ function enrichComparablesWithGroups(comparables, groups) {
         ...item,
         group: tagged.get(item.externalId || item.sourceUrl) || item.group || null,
     }));
+}
+
+function orderComparablesForOutput(comparables, groups) {
+    const byKey = new Map(
+        comparables
+            .map((item) => [item.externalId || item.sourceUrl, item])
+            .filter(([key]) => !!key)
+    );
+    const ordered = [];
+    const used = new Set();
+
+    ["low", "mid", "high", "stale"].forEach((group) => {
+        (groups?.[group] || []).forEach((key) => {
+            const item = byKey.get(key);
+            if (!item || used.has(key)) return;
+            ordered.push(item);
+            used.add(key);
+        });
+    });
+
+    const remainder = comparables.filter((item) => {
+        const key = item.externalId || item.sourceUrl;
+        return key ? !used.has(key) : true;
+    });
+
+    return [...ordered, ...remainder].slice(0, MAX_OUTPUT_COMPARABLES);
 }
 
 function buildMarketProjection(comparables, totalCount) {
@@ -910,7 +944,7 @@ async function fetchHepsiemlakHtmlComparableBundle(criteria = {}, options = {}) 
     }
 
     const groups = buildGroups(presentationPool);
-    const comparables = enrichComparablesWithGroups(presentationPool.slice(0, 24), groups);
+    const comparables = enrichComparablesWithGroups(orderComparablesForOutput(presentationPool, groups), groups);
     const marketProjection = buildMarketProjection(presentationPool, rawComparables.length);
     const regionalStats = buildRegionalStats(criteria, presentationPool, options.parcelLookup, marketProjection);
     const priceBand = buildPriceBandForSubject(presentationPool, options.subjectArea);

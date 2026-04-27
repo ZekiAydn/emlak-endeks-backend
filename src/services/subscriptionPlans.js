@@ -6,7 +6,7 @@ const PLAN_DEFINITIONS = {
         key: "FREE",
         name: "Ücretsiz",
         billingInterval: "FREE",
-        monthlyReportLimit: 3,
+        monthlyReportLimit: 5,
     },
     PREMIUM_20_MONTHLY: {
         key: "PREMIUM_20_MONTHLY",

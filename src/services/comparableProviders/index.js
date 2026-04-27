@@ -18,6 +18,8 @@ const PROVIDERS = {
 };
 
 const MIN_COMPLETE_COMPARABLES = 12;
+const GROUP_SIZE = 6;
+const MAX_OUTPUT_COMPARABLES = 24;
 
 function toNumber(value) {
     const parsed = Number(value);
@@ -55,15 +57,21 @@ function buildGroups(comparables = []) {
         .slice()
         .sort((a, b) => toNumber(a.price) - toNumber(b.price));
 
-    const low = priced.slice(0, 4);
-    const high = priced.length <= 4 ? [] : priced.slice(Math.max(4, priced.length - 4));
+    const low = priced.slice(0, GROUP_SIZE);
+    const high = priced.length <= GROUP_SIZE ? [] : priced.slice(Math.max(GROUP_SIZE, priced.length - GROUP_SIZE));
     const used = new Set([...low, ...high].map(comparableKey).filter(Boolean));
-    const mid = chooseMidComparables(priced, 4, used);
+    const mid = chooseMidComparables(priced, GROUP_SIZE, used);
+    const stale = comparables
+        .filter((item) => Number.isFinite(toNumber(item?.listingAgeDays)))
+        .slice()
+        .sort((a, b) => toNumber(b.listingAgeDays) - toNumber(a.listingAgeDays))
+        .slice(0, GROUP_SIZE);
 
     return {
         low: low.map(comparableKey).filter(Boolean),
         mid: mid.map(comparableKey).filter(Boolean),
         high: high.map(comparableKey).filter(Boolean),
+        stale: stale.map(comparableKey).filter(Boolean),
     };
 }
 
@@ -155,7 +163,7 @@ function buildMarketProjection(comparables = []) {
 }
 
 function mergePartialBundles(partialBundles = [], warnings = [], options = {}) {
-    const comparables = uniqueComparables(partialBundles.flatMap((bundle) => bundle.comparables || [])).slice(0, 24);
+    const comparables = uniqueComparables(partialBundles.flatMap((bundle) => bundle.comparables || [])).slice(0, MAX_OUTPUT_COMPARABLES);
     const groups = buildGroups(comparables);
     const tagged = tagGroups(comparables, groups);
     const providers = partialBundles.map((bundle) => bundle.sourceMeta?.provider).filter(Boolean);
