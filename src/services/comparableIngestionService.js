@@ -691,16 +691,27 @@ function titleFromHtml(html = "") {
 }
 
 async function fetchHtml(url) {
-    const timeoutMs = envNumber("COMPARABLE_FETCH_TIMEOUT_MS", 8000);
+    const isScraperApiEnabled = process.env.ENABLE_SCRAPER_API === "true";
+    const scraperApiKey = process.env.SCRAPER_API_KEY;
+
+    let targetUrl = url;
+    let timeoutMs = envNumber("COMPARABLE_FETCH_TIMEOUT_MS", 8000);
+
+    if (isScraperApiEnabled && scraperApiKey) {
+        targetUrl = `http://api.scraperapi.com?api_key=${scraperApiKey}&url=${encodeURIComponent(url)}&premium=true`;
+        timeoutMs = Math.max(timeoutMs, 40000);
+        console.log(`[SCRAPER_API] Fetching via proxy: ${url}`);
+    }
+
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-        const response = await fetch(url, {
+        const response = await fetch(targetUrl, {
             redirect: "follow",
             cache: "no-store",
             signal: controller.signal,
-            headers: {
+            headers: isScraperApiEnabled && scraperApiKey ? {} : {
                 accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                 "user-agent": "Mozilla/5.0 (compatible; EmlakEndeksComparableIngestion/1.0; +https://emlakskor.com)",
             },

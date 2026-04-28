@@ -56,6 +56,9 @@ SERPER_API_KEY=your-serper-api-key
 SERPER_MAX_RESULTS=10
 SERPER_TIMEOUT_MS=12000
 SERPER_DELAY_MS=300
+
+SCRAPER_API_KEY=your-scraper-api-key
+ENABLE_SCRAPER_API=true
 DEFAULT_COMPARABLE_IMAGE_URL=https://emlakskor.com/comparables/no-comparable-image.png
 ```
 
