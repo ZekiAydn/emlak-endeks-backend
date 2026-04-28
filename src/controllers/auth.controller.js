@@ -1,5 +1,6 @@
 import prisma from "../prisma.js";
 import bcrypt from "bcryptjs";
+import { randomInt } from "node:crypto";
 import { cookieName, signToken } from "../auth/jwt.js";
 import {
     normalizeUsername,
@@ -15,6 +16,7 @@ import {
 } from "../utils/authInput.js";
 import { badRequest, conflict, forbidden, notFound, unauthorized } from "../utils/errors.js";
 import { sendVerificationCode, verifyCode } from "../services/phoneVerification.js";
+import { isEmailConfigured, sendTemporaryPasswordEmail } from "../services/email.js";
 
 function authCookieOptions() {
     const isProduction = process.env.NODE_ENV === "production";
@@ -101,6 +103,7 @@ export const register = async (req, res) => {
             role: isAdminRegistration ? "ADMIN" : "AGENT",
             subscriptionPlan: "FREE",
             subscriptionStatus: "ACTIVE",
+            phoneVerifiedAt: new Date(),
             fullName: displayName,
             about: ""
         },
@@ -111,6 +114,52 @@ export const register = async (req, res) => {
     setAuthCookie(res, token);
 
     return res.json({ ok: true, user, token });
+};
+
+function temporaryPassword() {
+    const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+    let out = "";
+    for (let i = 0; i < 10; i += 1) {
+        out += alphabet[randomInt(0, alphabet.length)];
+    }
+    return out;
+}
+
+export const forgotPassword = async (req, res) => {
+    const identifier = String(req.body?.identifier || "").trim();
+    if (!identifier) throw badRequest("Telefon veya e-posta girin.", "identifier");
+
+    const user = await findUserByIdentifier(prisma, identifier);
+    if (!user || !user.isActive) {
+        return res.json({ ok: true, message: "Hesap bulunursa geçici şifre e-posta adresine gönderilecek." });
+    }
+
+    if (!user.email) {
+        throw badRequest("Bu kullanıcıda kayıtlı e-posta yok. Lütfen info@emlakskor.com adresine yazın.", "identifier");
+    }
+
+    if (!isEmailConfigured()) {
+        throw badRequest("Mail servisi henüz yapılandırılmamış. Lütfen info@emlakskor.com adresine yazın.");
+    }
+
+    const nextPassword = temporaryPassword();
+    const passwordHash = await bcrypt.hash(nextPassword, 10);
+    await prisma.user.update({
+        where: { id: user.id },
+        data: { passwordHash },
+    });
+
+    const result = await sendTemporaryPasswordEmail({
+        to: user.email,
+        fullName: user.fullName,
+        temporaryPassword: nextPassword,
+    });
+
+    if (!result?.ok) {
+        throw badRequest("Geçici şifre maili gönderilemedi. Lütfen info@emlakskor.com adresine yazın.");
+    }
+
+    return res.json({ ok: true, message: "Geçici şifre kayıtlı e-posta adresinize gönderildi." });
 };
 
 export const login = async (req, res) => {

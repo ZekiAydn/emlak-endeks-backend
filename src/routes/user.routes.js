@@ -6,6 +6,7 @@ const router = Router();
 
 router.get("/me", authRequired, c.getMe);
 router.put("/me", authRequired, c.updateMe);
+router.put("/me/password", authRequired, c.updatePassword);
 router.put("/me/subscription", authRequired, c.updateSubscription);
 
 export default router;

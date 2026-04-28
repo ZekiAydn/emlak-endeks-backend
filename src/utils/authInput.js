@@ -101,6 +101,7 @@ function publicUserSelect() {
         email: true,
         role: true,
         fullName: true,
+        spkLicenseNo: true,
         isActive: true,
         subscriptionPlan: true,
         subscriptionStatus: true,

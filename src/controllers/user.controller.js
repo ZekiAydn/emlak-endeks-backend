@@ -1,4 +1,5 @@
 import prisma from "../prisma.js";
+import bcrypt from "bcryptjs";
 import { normalizeOptionalEmail, normalizePhone, validateEmail, validatePhone, findIdentityConflict } from "../utils/authInput.js";
 import { PLAN_DEFINITIONS, getSubscriptionSummary } from "../services/subscriptionPlans.js";
 import { badRequest, conflict, forbidden, notFound, unauthorized } from "../utils/errors.js";
@@ -55,13 +56,36 @@ export const updateMe = async (req, res) => {
         data: {
             fullName,
             ...(phone !== undefined ? { phone: normalizedPhone } : {}),
-            ...(phone !== undefined && normalizedPhone !== currentUser?.phone ? { phoneVerifiedAt: null } : {}),
+            ...(phone !== undefined && normalizedPhone !== currentUser?.phone ? { phoneVerifiedAt: new Date() } : {}),
             ...(email !== undefined ? { email: normalizedEmail } : {}),
             about,
         }
     });
 
     res.json(updated);
+};
+
+export const updatePassword = async (req, res) => {
+    const userId = req.user.userId;
+    const { currentPassword, newPassword, rePassword, confirmPassword } = req.body || {};
+    const repeatedPassword = rePassword ?? confirmPassword;
+
+    if (!currentPassword) throw badRequest("Mevcut şifre gerekli.", "currentPassword");
+    if (!newPassword || String(newPassword).length < 8) throw badRequest("Yeni şifre en az 8 karakter olmalı.", "newPassword");
+    if (String(newPassword) !== String(repeatedPassword || "")) throw badRequest("Yeni şifreler eşleşmiyor.", "rePassword");
+
+    const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { id: true, passwordHash: true },
+    });
+    if (!user) throw notFound("Kullanıcı bulunamadı.");
+
+    const ok = await bcrypt.compare(String(currentPassword), user.passwordHash);
+    if (!ok) throw badRequest("Mevcut şifre hatalı.", "currentPassword");
+
+    const passwordHash = await bcrypt.hash(String(newPassword), 10);
+    await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+    res.json({ ok: true });
 };
 
 export const updateSubscription = async (req, res) => {

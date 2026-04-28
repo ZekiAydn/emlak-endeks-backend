@@ -13,6 +13,7 @@ model User {
   phone        String?   @unique
   email        String?   @unique
   about        String?
+  spkLicenseNo String?
   subscriptionPlan String @default("FREE")
   subscriptionStatus String @default("ACTIVE")
   phoneVerifiedAt DateTime?
@@ -98,6 +99,9 @@ model Report {
   landArea          Float?
   landQuality       String?
   planInfo          String?
+  status            String           @default("COMPLETED")
+  draftStep         Int?
+  draftData         Json?
   isDeleted         Boolean          @default(false)
   deletedAt         DateTime?
   reportDate        DateTime
@@ -115,6 +119,7 @@ model Report {
 
   @@index([userId])
   @@index([userId, isDeleted])
+  @@index([userId, status])
   @@index([clientId])
   @@index([propertyId])
 }

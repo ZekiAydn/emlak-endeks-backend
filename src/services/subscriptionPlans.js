@@ -7,18 +7,24 @@ const PLAN_DEFINITIONS = {
         name: "Ücretsiz",
         billingInterval: "FREE",
         monthlyReportLimit: 5,
+        price: 0,
+        currency: "TRY",
     },
     PREMIUM_20_MONTHLY: {
         key: "PREMIUM_20_MONTHLY",
         name: "Aylık Abone",
         billingInterval: "MONTHLY",
         monthlyReportLimit: 20,
+        price: 600,
+        currency: "TRY",
     },
     PREMIUM_20_YEARLY: {
         key: "PREMIUM_20_YEARLY",
         name: "Yıllık Abone",
         billingInterval: "YEARLY",
         monthlyReportLimit: 20,
+        price: 5000,
+        currency: "TRY",
     },
 };
 

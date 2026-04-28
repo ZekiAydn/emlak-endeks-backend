@@ -82,17 +82,27 @@ router.get("/users", async (req, res) => {
     const take = Math.min(Number(req.query.take || 50), 100);
     const skip = Number(req.query.skip || 0);
     const q = String(req.query.q || "").trim();
+    const phoneVerified = String(req.query.phoneVerified || "").trim().toLowerCase();
 
-    const where = q
-        ? {
+    const and = [];
+    if (q) {
+        and.push({
             OR: [
                 { username: { contains: q, mode: "insensitive" } },
                 { fullName: { contains: q, mode: "insensitive" } },
                 { email: { contains: q, mode: "insensitive" } },
                 { phone: { contains: q } },
             ],
-        }
-        : {};
+        });
+    }
+    if (["true", "1", "verified"].includes(phoneVerified)) {
+        and.push({ phoneVerifiedAt: { not: null } });
+    }
+    if (["false", "0", "unverified"].includes(phoneVerified)) {
+        and.push({ phoneVerifiedAt: null });
+    }
+
+    const where = and.length ? { AND: and } : {};
 
     const items = await prisma.user.findMany({
         where,
@@ -168,6 +178,7 @@ router.post("/users", async (req, res) => {
             isActive: isActive === undefined ? true : Boolean(isActive),
             fullName: String(fullName || username).trim(),
             phone: normalizedPhone,
+            phoneVerifiedAt: normalizedPhone ? new Date() : null,
             about: about || "",
         },
         select: publicUserSelect(),
@@ -242,7 +253,7 @@ router.put("/users/:id", async (req, res) => {
         data: {
             ...(fullName !== undefined ? { fullName } : {}),
             ...(phone !== undefined ? { phone: normalizedPhone } : {}),
-            ...(phone !== undefined && phoneVerified === undefined ? { phoneVerifiedAt: null } : {}),
+            ...(phone !== undefined && phoneVerified === undefined ? { phoneVerifiedAt: normalizedPhone ? new Date() : null } : {}),
             ...(email !== undefined ? { email: normalizedEmail } : {}),
             ...(about !== undefined ? { about } : {}),
             ...(role !== undefined ? { role } : {}),
