@@ -232,6 +232,51 @@ async function replaceReportMedia(reportId, { type, buffer, mime, filename }) {
     });
 }
 
+
+function normalizedDraftData(value) {
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function draftMirrorData(draftData = {}) {
+    const client = draftData.client || draftData.newClient || {};
+    const property = draftData.property || draftData.newProperty || {};
+    const comparablesMeta = draftData.comparablesMeta || {};
+
+    return {
+        clientFullName: cleanString(draftData.clientFullName || client.fullName || ""),
+        addressText: cleanString(draftData.addressText || property.addressText || ""),
+        parcelText: cleanString(draftData.parcelText || property.parcelText || ""),
+        reportType: reportTypeValue(property.reportType || draftData.reportType || "RESIDENTIAL"),
+        city: cleanOptional(property.city || draftData.city),
+        district: cleanOptional(property.district || draftData.district),
+        neighborhood: cleanOptional(property.neighborhood || draftData.neighborhood),
+        tkgmCity: cleanOptional(property.tkgmCity || draftData.tkgmCity || property.city),
+        tkgmDistrict: cleanOptional(property.tkgmDistrict || draftData.tkgmDistrict || property.district),
+        tkgmNeighborhood: cleanOptional(property.tkgmNeighborhood || draftData.tkgmNeighborhood || property.neighborhood),
+        blockNo: cleanOptional(property.blockNo || draftData.blockNo),
+        parcelNo: cleanOptional(property.parcelNo || draftData.parcelNo),
+        landArea: toNum(property.landArea ?? draftData.landArea),
+        landQuality: cleanOptional(property.landQuality || draftData.landQuality),
+        planInfo: cleanOptional(property.planInfo || draftData.planInfo),
+        consultantOpinion: draftData.consultantOpinion || "",
+        comparablesJson: draftData.comparables
+            ? {
+                ...(comparablesMeta || {}),
+                comparables: Array.isArray(draftData.comparables) ? draftData.comparables : [],
+            }
+            : undefined,
+        marketProjectionJson: draftData.aiMarketProjection || null,
+        regionalStatsJson: draftData.aiRegionalStats || null,
+    };
+}
+
+function draftStepValue(value) {
+    const parsed = Number(value || 1);
+    if (!Number.isFinite(parsed)) return 1;
+    return Math.max(1, Math.min(9, Math.round(parsed)));
+}
+
+
 export const createReport = async (req, res) => {
     const userId = req.user.userId;
     const body = req.body || {};
@@ -261,6 +306,9 @@ export const createReport = async (req, res) => {
         addressText,
         parcelText,
         reportDate: body.reportDate ? new Date(body.reportDate) : new Date(),
+        status: "COMPLETED",
+        draftStep: null,
+        draftData: null,
         consultantOpinion: body.consultantOpinion || "",
         comparablesJson: body.comparablesJson || null,
         marketProjectionJson: body.marketProjectionJson || null,
@@ -304,6 +352,90 @@ export const listReports = async (req, res) => {
     res.json(list);
 };
 
+
+export const listDraftReports = async (req, res) => {
+    const userId = req.user.userId;
+    const take = Math.min(Number(req.query.take || 20), 50);
+
+    const drafts = await prisma.report.findMany({
+        where: { userId, isDeleted: false, status: "DRAFT" },
+        orderBy: { updatedAt: "desc" },
+        take,
+        include: {
+            client: true,
+            property: true,
+            pricingAnalysis: true,
+        },
+    });
+
+    res.json(drafts);
+};
+
+export const getLatestDraftReport = async (req, res) => {
+    const userId = req.user.userId;
+    const draft = await prisma.report.findFirst({
+        where: { userId, isDeleted: false, status: "DRAFT" },
+        orderBy: { updatedAt: "desc" },
+        include: reportInclude,
+    });
+
+    res.json(draft || null);
+};
+
+export const createDraftReport = async (req, res) => {
+    const userId = req.user.userId;
+    const body = req.body || {};
+    const draftData = normalizedDraftData(body.draftData);
+    const mirror = draftMirrorData(draftData);
+
+    const draft = await prisma.report.create({
+        data: {
+            userId,
+            ...mirror,
+            clientFullName: mirror.clientFullName || "",
+            addressText: mirror.addressText || "",
+            parcelText: mirror.parcelText || "",
+            status: "DRAFT",
+            draftStep: draftStepValue(body.draftStep || draftData.step),
+            draftData,
+            reportDate: new Date(),
+        },
+        include: reportInclude,
+    });
+
+    res.status(201).json(draft);
+};
+
+export const updateDraftReport = async (req, res) => {
+    const userId = req.user.userId;
+    const id = req.params.id;
+    const body = req.body || {};
+    const draftData = normalizedDraftData(body.draftData);
+    const mirror = draftMirrorData(draftData);
+
+    const existing = await prisma.report.findFirst({
+        where: { id, userId, isDeleted: false },
+        select: { id: true },
+    });
+    if (!existing) throw notFound("Taslak bulunamadı.");
+
+    const draft = await prisma.report.update({
+        where: { id },
+        data: {
+            ...mirror,
+            clientFullName: mirror.clientFullName || "",
+            addressText: mirror.addressText || "",
+            parcelText: mirror.parcelText || "",
+            status: "DRAFT",
+            draftStep: draftStepValue(body.draftStep || draftData.step),
+            draftData,
+        },
+        include: reportInclude,
+    });
+
+    res.json(draft);
+};
+
 export const deleteReport = async (req, res) => {
     const userId = req.user.userId;
     const id = req.params.id;
@@ -324,6 +456,29 @@ export const deleteReport = async (req, res) => {
 export const getReport = async (req, res) => {
     const report = await findReport(req.user.userId, req.params.id);
     res.json(report);
+};
+
+
+export const completeReport = async (req, res) => {
+    const userId = req.user.userId;
+    const id = req.params.id;
+
+    const report = await findReport(userId, id);
+    if (report.status !== "COMPLETED") {
+        await assertCanCreateReport(prisma, userId);
+    }
+
+    const updated = await prisma.report.update({
+        where: { id },
+        data: {
+            status: "COMPLETED",
+            draftStep: null,
+            draftData: null,
+        },
+        include: reportInclude,
+    });
+
+    res.json(updated);
 };
 
 export const updateReport = async (req, res) => {

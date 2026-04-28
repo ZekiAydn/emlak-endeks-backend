@@ -6,6 +6,7 @@ const router = Router();
 
 router.post("/auth/register", c.register);
 router.post("/auth/login", c.login);
+router.post("/auth/forgot-password", c.forgotPassword);
 router.post("/auth/logout", c.logout);
 router.post("/auth/phone/verify-code", authRequired, c.verifyPhone);
 
