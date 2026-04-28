@@ -414,14 +414,18 @@ async function fetchSerpSnippetComparableBundle(criteria = {}, options = {}) {
     const warnings = [];
     const organicItems = [];
 
-    for (const query of queries) {
-        try {
-            const results = await searchSerpApiOrganic(query, { maxResults });
-            organicItems.push(...results);
-        } catch (error) {
-            warnings.push(`SERP_SNIPPET: ${String(error.message || error)}`);
+    const searchResults = await Promise.allSettled(
+        queries.map((query) => searchSerpApiOrganic(query, { maxResults }))
+    );
+
+    searchResults.forEach((result) => {
+        if (result.status === "fulfilled") {
+            organicItems.push(...result.value);
+            return;
         }
-    }
+
+        warnings.push(`SERP_SNIPPET: ${String(result.reason?.message || result.reason)}`);
+    });
 
     const category = propertyCategory(criteria);
     const unique = uniqueComparables(

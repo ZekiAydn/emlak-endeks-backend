@@ -5,7 +5,6 @@ import { comparableSearchText } from "./propertyCategory.js";
 const MAX_COMPARABLES = 24;
 const MAX_HTML_BYTES = 700_000;
 const FETCH_TIMEOUT_MS = 7000;
-const REAL_IMAGE_RESERVE_FOR_MOCKS = 0;
 
 function toText(value) {
     return typeof value === "string" ? value.trim() : "";
@@ -387,15 +386,6 @@ async function enrichComparable(item, subjectLocation, baseUrl) {
         }
     }
 
-    if (!(patch.imageUrl || item.imageUrl)) {
-        const streetViewUrl = buildStreetViewUrl(item, subjectLocation, baseUrl);
-        if (streetViewUrl) {
-            patch.imageUrl = streetViewUrl;
-            patch.imageSource = "google-street-view";
-            patch.imageAttribution = "Google Maps";
-        }
-    }
-
     const fallbackArea = extractArea(...snippets, htmlText);
     if (fallbackArea && !patch.grossArea && !item.netArea && !item.grossArea) patch.grossArea = fallbackArea;
 
@@ -482,49 +472,16 @@ function buildMockImageUrl(item, index, baseUrl) {
     return `${baseUrl}/comparables/mock-image?${params.toString()}`;
 }
 
-function fillMissingImages(results, extraImagePool = [], baseUrl) {
+function fillMissingImages(results) {
     const rows = results.map((result) => result.item);
-    const used = new Set(rows.map((item) => item.imageUrl).filter(Boolean).map(imageKey));
-    const pool = uniqueImageCandidates([
-        ...results.flatMap((result) => result.imageCandidates || []),
-        ...extraImagePool,
-    ]).filter((url) => !used.has(imageKey(url)));
-
-    const targetRealCount = Math.min(rows.length, Math.max(0, rows.length - REAL_IMAGE_RESERVE_FOR_MOCKS));
-    let realCount = rows.filter((item) => item.imageUrl && item.imageSource !== "brand-mock").length;
-    let assignedPoolImageCount = 0;
-
-    for (const row of rows) {
-        if (row.imageUrl || realCount >= targetRealCount) continue;
-        const nextImage = pool.shift();
-        if (!nextImage) break;
-
-        row.imageUrl = nextImage;
-        row.imageSource = "nearby-listing-pool";
-        realCount += 1;
-        assignedPoolImageCount += 1;
-        used.add(imageKey(nextImage));
-    }
-
-    let mockCount = 0;
-    rows.forEach((row, index) => {
-        if (row.imageUrl) return;
-
-        const mockUrl = buildMockImageUrl(row, index, baseUrl);
-        if (!mockUrl) return;
-
-        row.imageUrl = mockUrl;
-        row.imageSource = "brand-mock";
-        row.imageAttribution = "EmlakSkor";
-        mockCount += 1;
-    });
+    const realCount = rows.filter((item) => item.imageUrl).length;
 
     return {
         rows,
         realImageCount: realCount,
-        mockImageCount: mockCount,
-        assignedPoolImageCount,
-        pooledImageCount: pool.length,
+        mockImageCount: 0,
+        assignedPoolImageCount: 0,
+        pooledImageCount: 0,
     };
 }
 
@@ -576,8 +533,8 @@ export async function enrichComparableImages(comparables = [], { subjectLocation
             sourceMeta: {
                 provider: "PAGE_ENRICHMENT",
                 recordCount: 0,
-                hasStreetViewFallback: !!googleMapsKey(),
-                hasGoogleImageFallback: !!(googleImageSearchConfig().key && googleImageSearchConfig().cx),
+                hasStreetViewFallback: false,
+                hasGoogleImageFallback: false,
                 realImageCount: 0,
                 mockImageCount: 0,
                 assignedPoolImageCount: 0,
@@ -592,8 +549,7 @@ export async function enrichComparableImages(comparables = [], { subjectLocation
     }
 
     const enrichedResults = await Promise.all(rows.map((item) => enrichComparable(item || {}, subjectLocation, baseUrl)));
-    const googleImagePool = await collectGoogleImagePool(rows, subjectLocation);
-    const filled = fillMissingImages(enrichedResults, googleImagePool, baseUrl);
+    const filled = fillMissingImages(enrichedResults);
     const areaCoverage = buildAreaCoverage(rows, filled.rows);
 
     return {
@@ -601,8 +557,8 @@ export async function enrichComparableImages(comparables = [], { subjectLocation
         sourceMeta: {
             provider: "PAGE_ENRICHMENT",
             recordCount: filled.rows.length,
-            hasStreetViewFallback: !!googleMapsKey(),
-            hasGoogleImageFallback: !!(googleImageSearchConfig().key && googleImageSearchConfig().cx),
+            hasStreetViewFallback: false,
+            hasGoogleImageFallback: false,
             realImageCount: filled.realImageCount,
             mockImageCount: filled.mockImageCount,
             assignedPoolImageCount: filled.assignedPoolImageCount,

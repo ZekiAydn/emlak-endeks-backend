@@ -1,0 +1,4 @@
+source,title,description,price,currency,city,district,neighborhood,addressText,grossM2,netM2,roomCount,salonCount,bathCount,propertyType,buildingAge,floor,totalFloors,heating,imageUrl,listingUrl
+HEPSIEMLAK,"Pendik Bahçelievler 2+1 Satılık Daire","90 m2 brüt, 80 m2 net, 3. kat, kombi doğalgaz","4250000",TRY,İstanbul,Pendik,Bahçelievler,"İstanbul / Pendik / Bahçelievler",90,80,2,1,1,Daire,5,3,10,"Kombi Doğalgaz","https://example.com/listing-photo.jpg","https://www.hepsiemlak.com/istanbul-pendik-bahcelievler-satilik/daire/123"
+EMLAKJET,"Pendik 3+1 Daire","Brüt 120 m2, net 105 m2, merkezi ısıtma","5200000",TRY,İstanbul,Pendik,Bahçelievler,"İstanbul / Pendik / Bahçelievler",120,105,3,1,2,Daire,8,5,12,Merkezi,,"https://www.emlakjet.com/ilan/pendik-3-1-daire-456"
+

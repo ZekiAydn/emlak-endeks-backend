@@ -74,6 +74,8 @@ async function getSubscriptionSummary(prisma, userId) {
     const usedThisMonth = await prisma.report.count({
         where: {
             userId,
+            isDeleted: false,
+            status: { not: "DRAFT" },
             createdAt: {
                 gte: start,
                 lt: end,

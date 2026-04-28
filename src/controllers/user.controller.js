@@ -28,7 +28,7 @@ export const getMe = async (req, res) => {
 export const updateMe = async (req, res) => {
     const userId = req.user.userId;
 
-    const { fullName, phone, email, about } = req.body || {};
+    const { fullName, phone, email, about, spkLicenseNo } = req.body || {};
     const normalizedEmail = normalizeOptionalEmail(email);
     const normalizedPhone = phone === undefined ? undefined : normalizePhone(phone);
     const currentUser = phone === undefined
@@ -58,6 +58,7 @@ export const updateMe = async (req, res) => {
             ...(phone !== undefined ? { phone: normalizedPhone } : {}),
             ...(phone !== undefined && normalizedPhone !== currentUser?.phone ? { phoneVerifiedAt: new Date() } : {}),
             ...(email !== undefined ? { email: normalizedEmail } : {}),
+            ...(spkLicenseNo !== undefined ? { spkLicenseNo: String(spkLicenseNo || "").trim() || null } : {}),
             about,
         }
     });

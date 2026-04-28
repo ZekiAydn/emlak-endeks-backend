@@ -37,12 +37,12 @@ async function reportStatsByUserIds(userIds = []) {
     const [totalRows, activeRows, deletedRows, thisMonthRows] = await Promise.all([
         prisma.report.groupBy({
             by: ["userId"],
-            where: { userId: { in: userIds } },
+            where: { userId: { in: userIds }, status: { not: "DRAFT" } },
             _count: { _all: true },
         }),
         prisma.report.groupBy({
             by: ["userId"],
-            where: { userId: { in: userIds }, isDeleted: false },
+            where: { userId: { in: userIds }, isDeleted: false, status: { not: "DRAFT" } },
             _count: { _all: true },
         }),
         prisma.report.groupBy({
@@ -54,6 +54,7 @@ async function reportStatsByUserIds(userIds = []) {
             by: ["userId"],
             where: {
                 userId: { in: userIds },
+                status: { not: "DRAFT" },
                 createdAt: { gte: start, lt: end },
             },
             _count: { _all: true },
@@ -116,6 +117,7 @@ router.get("/users", async (req, res) => {
             phone: true,
             phoneVerifiedAt: true,
             fullName: true,
+            spkLicenseNo: true,
             role: true,
             isActive: true,
             subscriptionPlan: true,
@@ -135,6 +137,7 @@ router.post("/users", async (req, res) => {
         email: rawEmail,
         password,
         fullName,
+        spkLicenseNo,
         phone,
         about,
         role,
@@ -177,6 +180,7 @@ router.post("/users", async (req, res) => {
             role: userRole,
             isActive: isActive === undefined ? true : Boolean(isActive),
             fullName: String(fullName || username).trim(),
+            spkLicenseNo: spkLicenseNo ? String(spkLicenseNo).trim() : null,
             phone: normalizedPhone,
             phoneVerifiedAt: normalizedPhone ? new Date() : null,
             about: about || "",
@@ -196,6 +200,7 @@ router.get("/users/:id", async (req, res) => {
             id: true,
             username: true,
             fullName: true,
+            spkLicenseNo: true,
             phone: true,
             phoneVerifiedAt: true,
             email: true,
@@ -218,7 +223,7 @@ router.get("/users/:id", async (req, res) => {
 // update profile/role/status
 router.put("/users/:id", async (req, res) => {
     const id = req.params.id;
-    const { fullName, phone, email, about, role, isActive, subscriptionPlan, subscriptionStatus, phoneVerified } = req.body || {};
+    const { fullName, phone, email, about, role, isActive, subscriptionPlan, subscriptionStatus, phoneVerified, spkLicenseNo } = req.body || {};
     const normalizedEmail = normalizeOptionalEmail(email);
     const normalizedPhone = normalizeOptionalPhone(phone);
     const normalizedPlan = subscriptionPlan === undefined ? undefined : String(subscriptionPlan || "").trim().toUpperCase();
@@ -252,6 +257,7 @@ router.put("/users/:id", async (req, res) => {
         where: { id },
         data: {
             ...(fullName !== undefined ? { fullName } : {}),
+            ...(spkLicenseNo !== undefined ? { spkLicenseNo: String(spkLicenseNo || "").trim() || null } : {}),
             ...(phone !== undefined ? { phone: normalizedPhone } : {}),
             ...(phone !== undefined && phoneVerified === undefined ? { phoneVerifiedAt: normalizedPhone ? new Date() : null } : {}),
             ...(email !== undefined ? { email: normalizedEmail } : {}),
@@ -266,6 +272,7 @@ router.put("/users/:id", async (req, res) => {
             id: true,
             username: true,
             fullName: true,
+            spkLicenseNo: true,
             phone: true,
             phoneVerifiedAt: true,
             role: true,

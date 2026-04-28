@@ -8,6 +8,7 @@ import reportRoutes from "./report.routes.js";
 import mediaRoutes from "./media.routes.js";
 import comparableMediaRoutes from "./comparableMedia.routes.js";
 import locationRoutes from "./location.routes.js";
+import comparableRoutes from "./comparableRoutes.js";
 
 const router = Router();
 
@@ -20,5 +21,6 @@ router.use(locationRoutes);
 router.use(clientRoutes);
 router.use(reportRoutes);
 router.use(mediaRoutes);
+router.use("/api/comparables", comparableRoutes);
 
 export default router;

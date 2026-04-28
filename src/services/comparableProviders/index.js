@@ -20,6 +20,17 @@ const PROVIDERS = {
 const MIN_COMPLETE_COMPARABLES = 12;
 const GROUP_SIZE = 6;
 const MAX_OUTPUT_COMPARABLES = 24;
+const DEFAULT_COMPARABLE_PROVIDERS = "SERP_SNIPPET";
+
+function envFlag(name) {
+    return String(process.env[name] || "").trim().toLowerCase() === "true";
+}
+
+function providerEnabled(key) {
+    if (key === "HEPSIEMLAK_HTML") return envFlag("COMPARABLE_HEPSIEMLAK_HTML_ENABLED");
+    if (key === "REMAX") return envFlag("COMPARABLE_REMAX_ENABLED");
+    return true;
+}
 
 function toNumber(value) {
     const parsed = Number(value);
@@ -186,8 +197,27 @@ function mergePartialBundles(partialBundles = [], warnings = [], options = {}) {
     };
 }
 
+function rebuildComparableBundleFromComparables(bundle = {}, comparables = [], options = {}) {
+    const unique = uniqueComparables(comparables).slice(0, MAX_OUTPUT_COMPARABLES);
+    const groups = buildGroups(unique);
+    const tagged = tagGroups(unique, groups);
+
+    return {
+        ...bundle,
+        comparables: tagged,
+        groups,
+        marketProjection: tagged.length ? buildMarketProjection(tagged) : null,
+        priceBand: tagged.length ? buildPriceBand(tagged, options.subjectArea) : null,
+        sourceMeta: {
+            ...(bundle.sourceMeta || {}),
+            recordCount: bundle.sourceMeta?.recordCount ?? tagged.length,
+            sampleCount: tagged.length,
+        },
+    };
+}
+
 function selectedProviders() {
-    const raw = process.env.COMPARABLE_PROVIDERS || "HEPSIEMLAK_HTML,REMAX,SERP_SNIPPET";
+    const raw = process.env.COMPARABLE_PROVIDERS || DEFAULT_COMPARABLE_PROVIDERS;
     const keys = raw
         .split(",")
         .map((item) => item.trim().toUpperCase())
@@ -200,7 +230,10 @@ function selectedProviders() {
         keys.push("SERP_SNIPPET");
     }
 
-    return keys
+    const enabledKeys = keys.filter(providerEnabled);
+    const finalKeys = enabledKeys.length ? enabledKeys : ["SERP_SNIPPET"];
+
+    return finalKeys
         .map((key) => PROVIDERS[key])
         .filter(Boolean);
 }
@@ -210,8 +243,10 @@ async function fetchComparableBundle(criteria = {}, options = {}) {
     const providers = selectedProviders();
     const partialBundles = [];
 
-    for (const provider of providers) {
+    for (const [index, provider] of providers.entries()) {
         try {
+            const hasMoreProviders = index < providers.length - 1;
+
             console.log("[COMPARABLES] provider start", {
                 provider: provider.name,
                 city: criteria.city,
@@ -251,7 +286,9 @@ async function fetchComparableBundle(criteria = {}, options = {}) {
                     return mergePartialBundles(partialBundles, warnings, options);
                 }
 
-                warnings.push(`${provider.name}: ${MIN_COMPLETE_COMPARABLES} emsal için kısmi sonuç bulundu (${count}), diğer kaynaklarla tamamlanıyor.`);
+                if (hasMoreProviders) {
+                    warnings.push(`${provider.name}: ${MIN_COMPLETE_COMPARABLES} emsal için kısmi sonuç bulundu (${count}), diğer kaynaklarla tamamlanıyor.`);
+                }
                 continue;
             }
 
@@ -295,5 +332,6 @@ async function fetchComparableBundle(criteria = {}, options = {}) {
 
 export {
     fetchComparableBundle,
+    rebuildComparableBundleFromComparables,
     selectedProviders,
 };

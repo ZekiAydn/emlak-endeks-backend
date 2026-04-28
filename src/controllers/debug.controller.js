@@ -30,7 +30,9 @@ function criteriaFromQuery(query = {}) {
 
 function debugEnv() {
     return {
-        comparableProviders: process.env.COMPARABLE_PROVIDERS || "HEPSIEMLAK_HTML,REMAX,SERP_SNIPPET",
+        comparableProviders: process.env.COMPARABLE_PROVIDERS || "SERP_SNIPPET",
+        hepsiemlakHtmlEnabled: process.env.COMPARABLE_HEPSIEMLAK_HTML_ENABLED === "true",
+        remaxEnabled: process.env.COMPARABLE_REMAX_ENABLED === "true",
         resolverMode: process.env.HEPSIEMLAK_URL_RESOLVER_MODE || "CANDIDATES_ONLY",
         hasSerpApiKey: Boolean(process.env.SERPAPI_KEY),
         hepsiemlakMaxItems: process.env.HEPSIEMLAK_MAX_ITEMS || null,
