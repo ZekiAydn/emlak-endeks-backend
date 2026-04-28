@@ -1,5 +1,4 @@
 import { paymentRequired } from "../utils/errors.js";
-import { isPhoneVerificationConfigured } from "./phoneVerification.js";
 
 const PLAN_DEFINITIONS = {
     FREE: {
@@ -86,7 +85,7 @@ async function getSubscriptionSummary(prisma, userId) {
         phoneVerified,
         phoneVerifiedAt: user.phoneVerifiedAt ? user.phoneVerifiedAt.toISOString() : null,
         requiresPhoneVerification: !phoneVerified,
-        phoneVerificationEnabled: isPhoneVerificationConfigured(),
+        phoneVerificationEnabled: true,
         monthlyReportLimit: limit,
         usedThisMonth,
         remainingThisMonth: Math.max(0, limit - usedThisMonth),
