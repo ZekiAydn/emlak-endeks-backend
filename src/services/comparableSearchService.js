@@ -387,7 +387,7 @@ export async function searchComparablesForReport(userId, body = {}) {
     const providerResponse = await provider.search(queries);
 
     if (!providerResponse.results.length && providerResponse.errors.length) {
-        throw serviceError(`SerpAPI araması tamamlanamadı: ${providerResponse.errors[0].message}`);
+        throw serviceError(`Serper.dev araması tamamlanamadı: ${providerResponse.errors[0].message}`);
     }
 
     const normalized = providerResponse.results

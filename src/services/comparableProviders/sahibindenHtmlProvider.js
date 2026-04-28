@@ -181,7 +181,7 @@ async function resolveSahibindenUrls(criteria = {}) {
     const generated = buildGeneratedUrls(criteria);
     const serpUrls = [];
 
-    if (process.env.SERPAPI_KEY) {
+    if (process.env.SERPER_API_KEY) {
         try {
             const query = buildSerpQuery(criteria);
             console.log("[SAHIBINDEN] serp resolve", { query });

@@ -1041,7 +1041,7 @@ async function fetchHepsiemlakHtmlComparableBundle(criteria = {}, options = {}) 
                 low: low.url,
                 high: high.url,
             },
-            serpUsed: Boolean(process.env.SERPAPI_KEY) &&
+            serpUsed: Boolean(process.env.SERPER_API_KEY) &&
                 (process.env.HEPSIEMLAK_URL_RESOLVER_MODE || "CANDIDATES_ONLY") === "CANDIDATES_THEN_SERP",
         },
     };

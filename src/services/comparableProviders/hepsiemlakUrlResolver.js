@@ -184,40 +184,45 @@ function normalizeSerpUrl(url) {
 }
 
 async function searchWithSerpApi(criteria = {}) {
-    const apiKey = process.env.SERPAPI_KEY;
+    const apiKey = process.env.SERPER_API_KEY;
     if (!apiKey) return [];
 
     const query = buildSerpQuery(criteria);
     const maxResults = Math.min(Number(process.env.SERPAPI_MAX_RESULTS || 10), 20);
 
-    const url = new URL("https://serpapi.com/search.json");
-    url.searchParams.set("engine", "google");
-    url.searchParams.set("q", query);
-    url.searchParams.set("hl", "tr");
-    url.searchParams.set("gl", "tr");
-    url.searchParams.set("num", String(maxResults));
-    url.searchParams.set("api_key", apiKey);
-
-    console.log("[HEPSIEMLAK_URL_RESOLVER] serpapi search", { query });
-
-    const response = await fetch(url.toString(), {
-        headers: { accept: "application/json" },
+    const requestOptions = {
+        method: "POST",
+        headers: {
+            "X-API-KEY": apiKey,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            q: query,
+            gl: "tr",
+            hl: "tr",
+            num: maxResults
+        }),
+        redirect: "follow",
         cache: "no-store",
-    });
+    };
+
+    console.log("[HEPSIEMLAK_URL_RESOLVER] serper search", { query });
+
+    const response = await fetch("https://google.serper.dev/search", requestOptions);
 
     const json = await response.json().catch(() => null);
 
     if (!response.ok) {
-        throw new Error(`SerpAPI cevap vermedi (${response.status}): ${JSON.stringify(json).slice(0, 300)}`);
+        throw new Error(`Serper.dev cevap vermedi (${response.status}): ${JSON.stringify(json).slice(0, 300)}`);
     }
 
-    const organic = Array.isArray(json?.organic_results) ? json.organic_results : [];
+    const organic = Array.isArray(json?.organic) ? json.organic : [];
 
     const links = organic
         .map((item) => normalizeSerpUrl(item?.link))
         .filter(isUsefulHepsiemlakUrl);
 
-    console.log("[HEPSIEMLAK_URL_RESOLVER] serpapi result", {
+    console.log("[HEPSIEMLAK_URL_RESOLVER] serper result", {
         query,
         count: links.length,
         links: links.slice(0, 5),
@@ -227,34 +232,39 @@ async function searchWithSerpApi(criteria = {}) {
 }
 
 async function searchSerpApiOrganic(query, options = {}) {
-    const apiKey = process.env.SERPAPI_KEY;
+    const apiKey = process.env.SERPER_API_KEY;
     if (!apiKey) return [];
 
     const maxResults = Math.min(Number(options.maxResults || process.env.SERPAPI_MAX_RESULTS || 10), 20);
 
-    const url = new URL("https://serpapi.com/search.json");
-    url.searchParams.set("engine", "google");
-    url.searchParams.set("q", query);
-    url.searchParams.set("hl", "tr");
-    url.searchParams.set("gl", "tr");
-    url.searchParams.set("num", String(maxResults));
-    url.searchParams.set("api_key", apiKey);
-
-    console.log("[SERPAPI] organic search", { query, maxResults });
-
-    const response = await fetch(url.toString(), {
-        headers: { accept: "application/json" },
+    const requestOptions = {
+        method: "POST",
+        headers: {
+            "X-API-KEY": apiKey,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            q: query,
+            gl: "tr",
+            hl: "tr",
+            num: maxResults
+        }),
+        redirect: "follow",
         cache: "no-store",
-    });
+    };
+
+    console.log("[SERPER] organic search", { query, maxResults });
+
+    const response = await fetch("https://google.serper.dev/search", requestOptions);
 
     const json = await response.json().catch(() => null);
 
     if (!response.ok) {
-        throw new Error(`SerpAPI cevap vermedi (${response.status}): ${JSON.stringify(json).slice(0, 300)}`);
+        throw new Error(`Serper.dev cevap vermedi (${response.status}): ${JSON.stringify(json).slice(0, 300)}`);
     }
 
-    const organic = Array.isArray(json?.organic_results) ? json.organic_results : [];
-    console.log("[SERPAPI] organic result", {
+    const organic = Array.isArray(json?.organic) ? json.organic : [];
+    console.log("[SERPER] organic result", {
         query,
         maxResults,
         organicCount: organic.length,

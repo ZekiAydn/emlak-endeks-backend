@@ -56,7 +56,7 @@ export function generateComparableDiscoveryQueries(input = {}) {
     const roomText = cleanString(input.roomText);
     const phrase = listingPhrase(input);
     const subjectAreaText = areaText(input.subjectArea);
-    const maxQueries = Math.max(1, Number(process.env.COMPARABLE_DISCOVERY_MAX_QUERIES || 60));
+    const maxQueries = Math.max(1, Number(input.maxQueries || process.env.COMPARABLE_DISCOVERY_MAX_QUERIES || 60));
 
     const levelQueries = [
         compoundName && [quote(compoundName), quote(district), quote(roomText), quote(phrase)].filter(Boolean).join(" "),
@@ -93,7 +93,7 @@ export function generateComparableDiscoveryQueries(input = {}) {
     ];
 
     const baseQueries = unique(levelQueries);
-    const siteQueries = baseQueries.flatMap((query) => sites.map((site) => `site:${site} ${query}`));
+    const siteQueries = sites.flatMap((site) => baseQueries.map((query) => `site:${site} ${query}`));
     return unique(siteQueries).slice(0, maxQueries);
 }
 

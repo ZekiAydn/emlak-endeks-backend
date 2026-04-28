@@ -39,7 +39,7 @@ function debugEnv() {
         hepsiemlakHtmlEnabled: process.env.COMPARABLE_HEPSIEMLAK_HTML_ENABLED !== "false",
         remaxEnabled: process.env.COMPARABLE_REMAX_ENABLED !== "false",
         resolverMode: process.env.HEPSIEMLAK_URL_RESOLVER_MODE || "CANDIDATES_ONLY",
-        hasSerpApiKey: Boolean(process.env.SERPAPI_KEY),
+        hasSerperApiKey: Boolean(process.env.SERPER_API_KEY),
         emlakjetMaxPages: process.env.EMLAKJET_MAX_PAGES || null,
         emlakjetMaxItems: process.env.EMLAKJET_MAX_ITEMS || null,
         sahibindenMaxUrls: process.env.SAHIBINDEN_MAX_URLS || null,
@@ -66,7 +66,7 @@ function sortOptions(kind) {
 }
 
 async function trySerp(criteria) {
-    if (!process.env.SERPAPI_KEY) return { serpUrls: [], serpError: null };
+    if (!process.env.SERPER_API_KEY) return { serpUrls: [], serpError: null };
 
     try {
         return {

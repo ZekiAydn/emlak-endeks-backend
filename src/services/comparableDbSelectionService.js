@@ -441,7 +441,7 @@ async function cacheResult(input, result) {
 export async function selectComparablesForReport(input = {}) {
     const startedAt = Date.now();
     const key = comparableCacheKey(input);
-    const cache = await prisma.comparableSearchCache.findUnique({ where: { cacheKey: key } });
+    const cache = input.bypassCache ? null : await prisma.comparableSearchCache.findUnique({ where: { cacheKey: key } });
 
     if (cache && cache.expiresAt > new Date() && cacheIsUsable(cache)) {
         console.log("[COMPARABLES] cache hit", { cacheKey: key });
@@ -584,6 +584,9 @@ function buildMarketProjection(comparables = []) {
 
 export function buildComparableBundleFromDbSelection(selection = {}, input = {}) {
     const comparables = Array.isArray(selection.comparables) ? selection.comparables : [];
+    const hasOnlyPlaceholder =
+        selection.comparableSource === "DEFAULT_PLACEHOLDER" ||
+        comparables.every((item) => item.source === "DEFAULT_PLACEHOLDER");
     const minImageTarget = envNumber("COMPARABLE_MIN_IMAGE_TARGET", 12);
     const groups = {
         low: comparables.filter((item) => item.group === "low").map(responseKey),
@@ -594,16 +597,16 @@ export function buildComparableBundleFromDbSelection(selection = {}, input = {})
     if (selection.comparableStatus === "PARTIAL") {
         warnings.push(`Hedeflenen ${envNumber("COMPARABLE_TARGET_REPORT_COUNT", 18)} emsal yerine ${selection.comparableCount} emsal kullanılmıştır.`);
     }
-    if (Number(selection.imageCount || 0) < Math.min(minImageTarget, comparables.length)) {
+    if (!hasOnlyPlaceholder && Number(selection.imageCount || 0) < Math.min(minImageTarget, comparables.length)) {
         warnings.push(`Seçilen emsallerde gerçek fotoğraf sayısı hedefin altında kaldı (${selection.imageCount || 0}/${minImageTarget}); eksiklerde varsayılan görsel kullanıldı.`);
     }
 
     return {
         comparables,
         groups,
-        marketProjection: comparables.length ? buildMarketProjection(comparables) : null,
+        marketProjection: comparables.length && !hasOnlyPlaceholder ? buildMarketProjection(comparables) : null,
         regionalStats: null,
-        priceBand: comparables.length ? buildPriceBand(comparables, input.subjectArea) : null,
+        priceBand: comparables.length && !hasOnlyPlaceholder ? buildPriceBand(comparables, input.subjectArea) : null,
         warnings,
         sourceMeta: {
             provider: selection.comparableSource || "DB",

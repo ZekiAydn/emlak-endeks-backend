@@ -520,19 +520,23 @@ export async function upsertComparableListingFromMerged(merged = {}, input = {})
     return { record: created, action: "created", duplicateMerged: false };
 }
 
-export async function discoverComparableUrls(input = {}) {
+export async function discoverComparableUrls(input = {}, options = {}) {
     const startedAt = Date.now();
     const summary = emptySummary();
-    const queries = generateComparableDiscoveryQueries(input);
+    const queries = generateComparableDiscoveryQueries({
+        ...input,
+        maxQueries: options.maxQueries,
+    });
     summary.queriesGenerated = queries.length;
     console.log("[DISCOVERY] queries generated", { count: queries.length, city: input.city, district: input.district });
 
     const provider = new SerpListingProvider({
-        maxResults: envNumber("SERPAPI_MAX_RESULTS", 10),
+        maxResults: options.maxResults || envNumber("SERPAPI_MAX_RESULTS", 10),
+        timeoutMs: options.timeoutMs || envNumber("SERPAPI_TIMEOUT_MS", 10_000),
     });
     const providerResponse = await provider.search(queries);
-    const targetResults = envNumber("COMPARABLE_DISCOVERY_TARGET_RESULTS", 300);
-    const targetUrls = envNumber("COMPARABLE_DISCOVERY_TARGET_URLS", 150);
+    const targetResults = options.targetResults || envNumber("COMPARABLE_DISCOVERY_TARGET_RESULTS", 300);
+    const targetUrls = options.targetUrls || envNumber("COMPARABLE_DISCOVERY_TARGET_URLS", 150);
     const rawResults = providerResponse.results.slice(0, targetResults);
     summary.searchResultsReceived = rawResults.length;
     console.log("[DISCOVERY] search results received", { count: rawResults.length, errors: providerResponse.errors.length });
@@ -657,6 +661,17 @@ export async function discoverComparableUrls(input = {}) {
         else summary.sourceUrlsCreated += 1;
 
         console.log("[EXTRACT] search result parsed", { url: result.url, status });
+
+        if (status === "CANDIDATE") {
+            const searchData = searchDataFromResult(searchResult, input);
+            if (searchData && enoughSearchData(searchData)) {
+                const merged = mergeExtractedComparable(searchData, {}, {}, {});
+                const listingResult = await upsertComparableListingFromMerged(merged, input);
+                if (listingResult.action === "created") summary.listingsCreated += 1;
+                if (listingResult.action === "updated") summary.listingsUpdated += 1;
+                if (listingResult.duplicateMerged) summary.duplicatesMerged += 1;
+            }
+        }
     }
 
     console.log("[DISCOVERY] candidate urls", {
@@ -861,14 +876,22 @@ export async function fetchAndParseComparableUrl(sourceUrlRecord, input = {}) {
     }
 }
 
-export async function fetchPendingComparableUrls({ limit = null, input = {} } = {}) {
+export async function fetchPendingComparableUrls({ limit = null, input = {}, timeoutMs = null } = {}) {
     const summary = emptySummary();
     const maxLimit = Math.min(Number(limit || envNumber("COMPARABLE_FETCH_PENDING_LIMIT", 50)), 200);
     const startedAt = Date.now();
-    const globalTimeoutMs = envNumber("COMPARABLE_GLOBAL_JOB_TIMEOUT_MS", 60_000);
+    const globalTimeoutMs = Number(timeoutMs || envNumber("COMPARABLE_GLOBAL_JOB_TIMEOUT_MS", 60_000));
+    const where = {
+        status: { in: ["DISCOVERED", "CANDIDATE", "FAILED"] },
+        ...(cleanString(input.city) ? { city: { equals: cleanString(input.city), mode: "insensitive" } } : {}),
+        ...(cleanString(input.district) ? { district: { equals: cleanString(input.district), mode: "insensitive" } } : {}),
+        ...(cleanString(input.neighborhood) ? { neighborhood: { equals: cleanString(input.neighborhood), mode: "insensitive" } } : {}),
+        ...(cleanString(input.propertyType) ? { propertyType: { equals: cleanString(input.propertyType), mode: "insensitive" } } : {}),
+        ...(cleanString(input.roomText) ? { roomText: cleanString(input.roomText) } : {}),
+    };
 
     const records = await prisma.comparableSourceUrl.findMany({
-        where: { status: { in: ["DISCOVERED", "CANDIDATE", "FAILED"] } },
+        where,
         orderBy: [{ status: "asc" }, { discoveredAt: "desc" }],
         take: maxLimit,
         include: { searchResult: true },

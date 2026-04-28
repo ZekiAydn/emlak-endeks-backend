@@ -52,7 +52,7 @@ npx prisma generate
 ## .env
 
 ```bash
-SERPAPI_KEY=your-serpapi-key
+SERPER_API_KEY=your-serper-api-key
 SERPAPI_MAX_RESULTS=10
 SERPAPI_TIMEOUT_MS=12000
 SERPAPI_DELAY_MS=300

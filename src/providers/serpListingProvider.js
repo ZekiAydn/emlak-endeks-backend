@@ -19,9 +19,32 @@ function imageFromResult(item = {}) {
     );
 }
 
+function detectedExtensionsText(value, prefix = "") {
+    if (!value || typeof value !== "object") return "";
+    const parts = [];
+    for (const [key, nested] of Object.entries(value)) {
+        const label = prefix ? `${prefix}.${key}` : key;
+        if (nested === null || nested === undefined) continue;
+        if (["string", "number", "boolean"].includes(typeof nested)) {
+            parts.push(`${label}: ${nested}`);
+            continue;
+        }
+        if (Array.isArray(nested)) {
+            const primitives = nested.filter((item) => ["string", "number", "boolean"].includes(typeof item));
+            if (primitives.length) parts.push(`${label}: ${primitives.join(" ")}`);
+            continue;
+        }
+        parts.push(detectedExtensionsText(nested, label));
+    }
+    return cleanString(parts.filter(Boolean).join(" "));
+}
+
 function flattenResult(item = {}, query = "") {
     const link = sanitizeListingUrl(item.link || item.redirect_link || item.url);
     if (!link) return null;
+
+    const topDetected = detectedExtensionsText(item.rich_snippet?.top?.detected_extensions);
+    const bottomDetected = detectedExtensionsText(item.rich_snippet?.bottom?.detected_extensions);
 
     return {
         title: cleanString(item.title),
@@ -29,6 +52,8 @@ function flattenResult(item = {}, query = "") {
             item.snippet,
             item.rich_snippet?.top?.extensions?.join(" "),
             item.rich_snippet?.bottom?.extensions?.join(" "),
+            topDetected,
+            bottomDetected,
         ].filter(Boolean).join(" ")),
         link,
         displayed_link: cleanString(item.displayed_link),
@@ -49,7 +74,7 @@ function flattenResult(item = {}, query = "") {
 export default class SerpListingProvider extends BaseListingProvider {
     constructor(options = {}) {
         super(options);
-        this.apiKey = options.apiKey || process.env.SERPAPI_KEY;
+        this.apiKey = options.apiKey || process.env.SERPER_API_KEY;
         this.timeoutMs = Number(options.timeoutMs || process.env.SERPAPI_TIMEOUT_MS || 12000);
         this.maxResults = Math.min(Number(options.maxResults || process.env.SERPAPI_MAX_RESULTS || 10), 20);
         this.delayMs = Number(options.delayMs || process.env.SERPAPI_DELAY_MS || 300);
@@ -57,34 +82,41 @@ export default class SerpListingProvider extends BaseListingProvider {
 
     async searchOne(query) {
         if (!this.apiKey) {
-            throw new Error("SERPAPI_KEY tanımlı değil.");
+            throw new Error("SERPER_API_KEY tanımlı değil.");
         }
 
-        const url = new URL("https://serpapi.com/search.json");
-        url.searchParams.set("engine", "google");
-        url.searchParams.set("q", query);
-        url.searchParams.set("hl", "tr");
-        url.searchParams.set("gl", "tr");
-        url.searchParams.set("num", String(this.maxResults));
-        url.searchParams.set("api_key", this.apiKey);
+        const requestOptions = {
+            method: "POST",
+            headers: {
+                "X-API-KEY": this.apiKey,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                q: query,
+                gl: "tr",
+                hl: "tr",
+                num: this.maxResults
+            }),
+            redirect: "follow",
+            cache: "no-store",
+        };
 
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
 
         try {
-            const response = await fetch(url.toString(), {
-                headers: { accept: "application/json" },
+            const response = await fetch("https://google.serper.dev/search", {
+                ...requestOptions,
                 signal: controller.signal,
-                cache: "no-store",
             });
             const json = await response.json().catch(() => null);
 
             if (!response.ok) {
-                const message = json?.error || json?.message || `SerpAPI ${response.status} döndü.`;
+                const message = json?.error || json?.message || `Serper.dev ${response.status} döndü.`;
                 throw new Error(message);
             }
 
-            return Array.isArray(json?.organic_results) ? json.organic_results : [];
+            return Array.isArray(json?.organic) ? json.organic : [];
         } finally {
             clearTimeout(timeout);
         }
@@ -106,7 +138,9 @@ export default class SerpListingProvider extends BaseListingProvider {
                     results.push(flattened);
                 }
             } catch (error) {
-                errors.push({ query, message: error.message || String(error) });
+                const message = error.message || String(error);
+                errors.push({ query, message });
+                if (/invalid api key|api key|unauthorized|forbidden/i.test(message)) break;
             }
 
             if (this.delayMs > 0) await sleep(this.delayMs);
@@ -115,4 +149,3 @@ export default class SerpListingProvider extends BaseListingProvider {
         return { results, errors };
     }
 }
-

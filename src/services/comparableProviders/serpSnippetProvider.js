@@ -417,7 +417,8 @@ function buildRegionalStats(criteria, comparables, parcelLookup, marketProjectio
 }
 
 async function fetchSerpSnippetComparableBundle(criteria = {}, options = {}) {
-    if (!process.env.SERPAPI_KEY) {
+    const apiKey = process.env.SERPER_API_KEY;
+    if (!apiKey) {
         return {
             comparables: [],
             groups: {},
@@ -431,7 +432,7 @@ async function fetchSerpSnippetComparableBundle(criteria = {}, options = {}) {
                 recordCount: 0,
                 serpUsed: false,
             },
-            warnings: ["SERP_SNIPPET: SERPAPI_KEY tanımlı değil"],
+            warnings: ["SERP_SNIPPET: SERPER_API_KEY tanımlı değil"],
         };
     }
 
