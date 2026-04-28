@@ -790,7 +790,7 @@ export const autofillExternalData = async (req, res) => {
             };
             comparableSelection = await selectComparablesForReport(comparableInput);
 
-            if ((comparableSelection?.candidateCount || 0) === 0 || comparableSelection?.comparableStatus === "EMPTY") {
+            if ((comparableSelection?.comparableCount || 0) < envNumber("COMPARABLE_TARGET_REPORT_COUNT", 18) || comparableSelection?.comparableStatus === "EMPTY") {
                 syncIngestion = await warmComparablePoolForReport(comparableInput);
                 if (syncIngestion) {
                     comparableSelection = await selectComparablesForReport({

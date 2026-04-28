@@ -164,8 +164,8 @@ function enoughSearchData(searchData = {}) {
     const hasPrice = Number(searchData.price) > 0;
     const hasArea = Number(searchData.grossAreaM2 || searchData.netAreaM2) > 0;
     const hasRoom = Boolean(cleanString(searchData.roomText));
-    const hasImage = Boolean(cleanString(searchData.imageUrl));
-    return (hasPrice && hasArea) || (hasPrice && hasRoom && hasImage) || (hasArea && hasRoom && hasImage);
+    const hasImage = Boolean(cleanString(searchData.imageUrl)) && !isDefaultImage(searchData.imageUrl);
+    return hasImage && ((hasPrice && hasArea) || (hasPrice && hasRoom) || (hasArea && hasRoom));
 }
 
 function searchDataFromResult(searchResult = null, fallback = {}) {
@@ -469,6 +469,11 @@ function comparableDbData(merged = {}, input = {}) {
 
 export async function upsertComparableListingFromMerged(merged = {}, input = {}) {
     if (!cleanString(merged.sourceUrl)) return { record: null, action: "skipped", duplicateMerged: false };
+
+    // YENI KURAL: Fotografi olmayan (veya default resimli) ilanlari veritabanina kaydetme
+    if (!cleanString(merged.imageUrl) || isDefaultImage(merged.imageUrl)) {
+        return { record: null, action: "skipped", duplicateMerged: false };
+    }
 
     const data = comparableDbData(merged, input);
     const existing = await prisma.comparableListing.findFirst({ where: { sourceUrl: data.sourceUrl } });

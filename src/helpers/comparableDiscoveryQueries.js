@@ -83,13 +83,10 @@ export function generateComparableDiscoveryQueries(input = {}) {
     ];
 
     const sites = [
+        "sahibinden.com",
         "hepsiemlak.com",
         "emlakjet.com",
         "remax.com.tr",
-        "coldwellbanker.com.tr",
-        "realtyworld.com.tr",
-        "zingat.com",
-        "hurriyetemlak.com",
     ];
 
     const baseQueries = unique(levelQueries);
