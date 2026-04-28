@@ -53,9 +53,9 @@ npx prisma generate
 
 ```bash
 SERPER_API_KEY=your-serper-api-key
-SERPAPI_MAX_RESULTS=10
-SERPAPI_TIMEOUT_MS=12000
-SERPAPI_DELAY_MS=300
+SERPER_MAX_RESULTS=10
+SERPER_TIMEOUT_MS=12000
+SERPER_DELAY_MS=300
 DEFAULT_COMPARABLE_IMAGE_URL=https://emlakskor.com/comparables/no-comparable-image.png
 ```
 

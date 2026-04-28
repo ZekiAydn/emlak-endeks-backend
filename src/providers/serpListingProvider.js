@@ -75,9 +75,9 @@ export default class SerpListingProvider extends BaseListingProvider {
     constructor(options = {}) {
         super(options);
         this.apiKey = options.apiKey || process.env.SERPER_API_KEY;
-        this.timeoutMs = Number(options.timeoutMs || process.env.SERPAPI_TIMEOUT_MS || 12000);
-        this.maxResults = Math.min(Number(options.maxResults || process.env.SERPAPI_MAX_RESULTS || 10), 20);
-        this.delayMs = Number(options.delayMs || process.env.SERPAPI_DELAY_MS || 300);
+        this.timeoutMs = Number(options.timeoutMs || process.env.SERPER_TIMEOUT_MS || 12000);
+        this.maxResults = Math.min(Number(options.maxResults || process.env.SERPER_MAX_RESULTS || 10), 20);
+        this.delayMs = Number(options.delayMs || process.env.SERPER_DELAY_MS || 300);
     }
 
     async searchOne(query) {

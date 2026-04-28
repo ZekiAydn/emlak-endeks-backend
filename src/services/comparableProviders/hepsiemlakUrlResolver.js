@@ -188,7 +188,7 @@ async function searchWithSerpApi(criteria = {}) {
     if (!apiKey) return [];
 
     const query = buildSerpQuery(criteria);
-    const maxResults = Math.min(Number(process.env.SERPAPI_MAX_RESULTS || 10), 20);
+    const maxResults = Math.min(Number(process.env.SERPER_MAX_RESULTS || 10), 20);
 
     const requestOptions = {
         method: "POST",
@@ -235,7 +235,7 @@ async function searchSerpApiOrganic(query, options = {}) {
     const apiKey = process.env.SERPER_API_KEY;
     if (!apiKey) return [];
 
-    const maxResults = Math.min(Number(options.maxResults || process.env.SERPAPI_MAX_RESULTS || 10), 20);
+    const maxResults = Math.min(Number(options.maxResults || process.env.SERPER_MAX_RESULTS || 10), 20);
 
     const requestOptions = {
         method: "POST",

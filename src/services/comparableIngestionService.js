@@ -531,8 +531,8 @@ export async function discoverComparableUrls(input = {}, options = {}) {
     console.log("[DISCOVERY] queries generated", { count: queries.length, city: input.city, district: input.district });
 
     const provider = new SerpListingProvider({
-        maxResults: options.maxResults || envNumber("SERPAPI_MAX_RESULTS", 10),
-        timeoutMs: options.timeoutMs || envNumber("SERPAPI_TIMEOUT_MS", 10_000),
+        maxResults: options.maxResults || envNumber("SERPER_MAX_RESULTS", 10),
+        timeoutMs: options.timeoutMs || envNumber("SERPER_TIMEOUT_MS", 10_000),
     });
     const providerResponse = await provider.search(queries);
     const targetResults = options.targetResults || envNumber("COMPARABLE_DISCOVERY_TARGET_RESULTS", 300);

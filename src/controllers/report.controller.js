@@ -314,7 +314,7 @@ async function warmComparablePoolForReport(input = {}) {
     const targetUrls = envNumber("COMPARABLE_REPORT_SYNC_TARGET_URLS", 80);
     const fetchLimit = envNumber("COMPARABLE_REPORT_SYNC_FETCH_LIMIT", 24);
     const searchTimeoutMs = Math.min(
-        envNumber("SERPAPI_TIMEOUT_MS", 12000),
+        envNumber("SERPER_TIMEOUT_MS", 12000),
         Math.max(4000, Math.floor(timeoutMs / Math.max(maxQueries, 1)) - 500)
     );
 
