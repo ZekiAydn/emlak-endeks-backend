@@ -408,8 +408,8 @@ async function fetchSerpSnippetComparableBundle(criteria = {}, options = {}) {
         };
     }
 
-    const maxQueries = Math.max(1, Math.min(Number(process.env.SERP_SNIPPET_MAX_QUERIES || 4), 5));
-    const maxResults = Math.max(5, Math.min(Number(process.env.SERP_SNIPPET_MAX_RESULTS || process.env.SERPAPI_MAX_RESULTS || 10), 20));
+    const maxQueries = Math.max(1, Math.min(Number(4), 5));
+    const maxResults = Math.max(5, Math.min(Number(10), 20));
     const queries = buildQueries(criteria).slice(0, maxQueries);
     const warnings = [];
     const organicItems = [];

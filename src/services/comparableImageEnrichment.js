@@ -305,13 +305,13 @@ async function fetchLimitedHtml(sourceUrl) {
 }
 
 function googleMapsKey() {
-    return process.env.GOOGLE_MAPS_API_KEY || "";
+    return  "";
 }
 
 function googleImageSearchConfig() {
     return {
-        key: process.env.GOOGLE_CUSTOM_SEARCH_API_KEY || process.env.GOOGLE_SEARCH_API_KEY || "",
-        cx: process.env.GOOGLE_CUSTOM_SEARCH_CX || process.env.GOOGLE_CSE_ID || "",
+        key: "",
+        cx: "",
     };
 }
 

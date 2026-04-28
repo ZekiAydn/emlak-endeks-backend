@@ -8,25 +8,27 @@ datasource db {
 }
 
 model User {
-  id           String    @id @default(cuid())
-  fullName     String
-  phone        String?   @unique
-  email        String?   @unique
-  about        String?
-  subscriptionPlan String @default("FREE")
-  subscriptionStatus String @default("ACTIVE")
-  phoneVerifiedAt DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  username     String    @unique
-  passwordHash String
-  role         UserRole? @default(AGENT)
-  isActive     Boolean?  @default(true)
-  lastLoginAt  DateTime? @db.Timestamptz(6)
-  media        Media[]   @relation("UserMedia")
-  clients      Client[]
-  properties   Property[]
-  reports      Report[]
+  id                 String              @id @default(cuid())
+  fullName           String
+  phone              String?             @unique
+  email              String?             @unique
+  about              String?
+  spkLicenseNo       String?
+  subscriptionPlan   String              @default("FREE")
+  subscriptionStatus String              @default("ACTIVE")
+  phoneVerifiedAt    DateTime?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  username           String              @unique
+  passwordHash       String
+  role               UserRole?           @default(AGENT)
+  isActive           Boolean?            @default(true)
+  lastLoginAt        DateTime?           @db.Timestamptz(6)
+  media              Media[]             @relation("UserMedia")
+  clients            Client[]
+  properties         Property[]
+  reports            Report[]
+  comparables        ComparableListing[]
 }
 
 model Client {
@@ -47,29 +49,29 @@ model Client {
 }
 
 model Property {
-  id           String   @id @default(cuid())
-  userId       String
-  clientId     String
-  title        String?
-  addressText  String
-  parcelText   String?
-  city         String?
-  district     String?
-  neighborhood String?
+  id               String   @id @default(cuid())
+  userId           String
+  clientId         String
+  title            String?
+  addressText      String
+  parcelText       String?
+  city             String?
+  district         String?
+  neighborhood     String?
   tkgmCity         String?
   tkgmDistrict     String?
   tkgmNeighborhood String?
-  blockNo      String?
-  parcelNo     String?
-  planInfo     String?
-  landArea     Float?
-  landQuality  String?
-  notes        String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  client       Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  reports      Report[]
+  blockNo          String?
+  parcelNo         String?
+  planInfo         String?
+  landArea         Float?
+  landQuality      String?
+  notes            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client           Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  reports          Report[]
 
   @@index([userId])
   @@index([clientId])
@@ -77,46 +79,156 @@ model Property {
 }
 
 model Report {
-  id                String           @id @default(cuid())
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
-  userId            String
-  clientId          String?
-  propertyId        String?
-  reportType        String           @default("RESIDENTIAL")
-  clientFullName    String
-  addressText       String
-  parcelText        String
-  city              String?
-  district          String?
-  neighborhood      String?
-  tkgmCity          String?
-  tkgmDistrict      String?
-  tkgmNeighborhood  String?
-  blockNo           String?
-  parcelNo          String?
-  landArea          Float?
-  landQuality       String?
-  planInfo          String?
-  isDeleted         Boolean          @default(false)
-  deletedAt         DateTime?
-  reportDate        DateTime
-  consultantOpinion String?
-  comparablesJson   Json?
+  id                   String              @id @default(cuid())
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  userId               String
+  clientId             String?
+  propertyId           String?
+  reportType           String              @default("RESIDENTIAL")
+  clientFullName       String
+  addressText          String
+  parcelText           String
+  city                 String?
+  district             String?
+  neighborhood         String?
+  tkgmCity             String?
+  tkgmDistrict         String?
+  tkgmNeighborhood     String?
+  blockNo              String?
+  parcelNo             String?
+  landArea             Float?
+  landQuality          String?
+  planInfo             String?
+  status               String              @default("COMPLETED")
+  draftStep            Int?
+  draftData            Json?
+  isDeleted            Boolean             @default(false)
+  deletedAt            DateTime?
+  reportDate           DateTime
+  consultantOpinion    String?
+  comparablesJson      Json?
   marketProjectionJson Json?
-  regionalStatsJson Json?
-  buildingDetails   BuildingDetails?
-  client            Client?          @relation(fields: [clientId], references: [id], onDelete: SetNull)
-  media             Media[]          @relation("ReportMedia")
-  pricingAnalysis   PricingAnalysis?
-  property          Property?        @relation(fields: [propertyId], references: [id], onDelete: SetNull)
-  propertyDetails   PropertyDetails?
-  user              User             @relation(fields: [userId], references: [id])
+  regionalStatsJson    Json?
+  buildingDetails      BuildingDetails?
+  client               Client?             @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  media                Media[]             @relation("ReportMedia")
+  pricingAnalysis      PricingAnalysis?
+  property             Property?           @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  propertyDetails      PropertyDetails?
+  user                 User                @relation(fields: [userId], references: [id])
+  comparableListings   ComparableListing[]
 
   @@index([userId])
   @@index([userId, isDeleted])
+  @@index([userId, status])
   @@index([clientId])
   @@index([propertyId])
+}
+
+model ComparableSearchResult {
+  id                String                 @id @default(cuid())
+  query             String
+  sourceEngine      String?
+  resultRank        Int?
+  title             String?
+  snippet           String?
+  url               String                 @unique
+  displayUrl        String?
+  thumbnailUrl      String?
+  city              String?
+  district          String?
+  neighborhood      String?
+  compoundName      String?
+  propertyType      String?
+  roomText          String?
+  status            ComparableSourceStatus @default(DISCOVERED)
+  rejectReason      String?
+  extractedPrice    Float?
+  extractedCurrency String?
+  extractedAreaM2   Float?
+  extractedRoomText String?
+  extractedImageUrl String?
+  extractedDataJson Json?
+  discoveredAt      DateTime               @default(now())
+  fetchedAt         DateTime?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  sourceUrls        ComparableSourceUrl[]
+
+  @@index([city, district, neighborhood])
+  @@index([status])
+  @@index([query])
+  @@index([propertyType, roomText])
+}
+
+model ComparableSourceUrl {
+  id             String                  @id @default(cuid())
+  source         String
+  url            String                  @unique
+  query          String?
+  searchResultId String?
+  city           String?
+  district       String?
+  neighborhood   String?
+  compoundName   String?
+  propertyType   String?
+  roomText       String?
+  status         ComparableSourceStatus  @default(DISCOVERED)
+  lastError      String?
+  httpStatus     Int?
+  blockedReason  String?
+  discoveredAt   DateTime                @default(now())
+  fetchedAt      DateTime?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  searchResult   ComparableSearchResult? @relation(fields: [searchResultId], references: [id], onDelete: SetNull)
+
+  @@index([source])
+  @@index([status])
+  @@index([city, district, neighborhood])
+  @@index([propertyType, roomText])
+}
+
+model ComparableSearchCache {
+  id           String   @id @default(cuid())
+  cacheKey     String   @unique
+  city         String?
+  district     String?
+  neighborhood String?
+  compoundName String?
+  propertyType String?
+  roomText     String?
+  reportType   String?
+  subjectArea  Float?
+  resultsJson  Json
+  source       String?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([cacheKey])
+  @@index([city, district, neighborhood])
+  @@index([expiresAt])
+}
+
+model ComparableIngestionJob {
+  id           String    @id @default(cuid())
+  status       String    @default("PENDING")
+  city         String?
+  district     String?
+  neighborhood String?
+  compoundName String?
+  propertyType String?
+  roomText     String?
+  subjectArea  Float?
+  payloadJson  Json?
+  resultJson   Json?
+  errorMessage String?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 }
 
 model PropertyDetails {
@@ -196,6 +308,160 @@ model Media {
 
   @@index([userId])
   @@index([reportId])
+}
+
+model ComparableListing {
+  id String @id @default(cuid())
+
+  userId   String?
+  reportId String?
+
+  source              String
+  externalId          String?
+  sourceListingId     String?
+  sourceUrl           String? @unique
+  alternateSourceUrls Json?
+  title               String?
+  description         String?
+
+  price      Float?
+  currency   String @default("TRY")
+  pricePerM2 Float?
+
+  city         String?
+  district     String?
+  neighborhood String?
+  compoundName String?
+  addressText  String?
+
+  grossM2     Float?
+  netM2       Float?
+  grossAreaM2 Float?
+  netAreaM2   Float?
+  roomText    String?
+  roomCount   Int?
+  salonCount  Int?
+  bathCount   Int?
+
+  propertyType    String?
+  buildingAge     Int?
+  buildingAgeText String?
+  floor           Int?
+  floorText       String?
+  totalFloors     Int?
+  totalFloorsText String?
+  heating         String?
+  heatingType     String?
+
+  imageUrl         String
+  imageStatus      String                @default("DEFAULT")
+  imageSource      ComparableImageSource @default(UNKNOWN)
+  imageFieldSource ComparableFieldSource @default(UNKNOWN)
+  fallbackImageUrl String?
+  listingUrl       String
+
+  providerRaw         Json?
+  parsedRaw           Json?
+  rawSearchResultJson Json?
+  rawMetadataJson     Json?
+  rawExtractedJson    Json?
+
+  confidenceScore     Float    @default(0)
+  missingFields       String[]
+  isManualVerified    Boolean  @default(false)
+  isSelectedForReport Boolean  @default(false)
+  isActive            Boolean  @default(true)
+
+  comparableGroup String?
+  pricePerSqm     Float?
+  dataQuality     Float                     @default(0)
+  matchScore      Float                     @default(0)
+  matchLevel      ComparableMatchLevel      @default(UNKNOWN)
+  priceSource     ComparableFieldSource     @default(UNKNOWN)
+  areaSource      ComparableFieldSource     @default(UNKNOWN)
+  roomSource      ComparableFieldSource     @default(UNKNOWN)
+  titleSource     ComparableFieldSource     @default(UNKNOWN)
+  freshnessStatus ComparableFreshnessStatus @default(FRESH)
+  firstSeenAt     DateTime                  @default(now())
+  lastSeenAt      DateTime                  @default(now())
+  staleAfter      DateTime?
+  expiresAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  report Report? @relation(fields: [reportId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([reportId])
+  @@index([source])
+  @@index([city, district, neighborhood])
+  @@index([propertyType, roomText])
+  @@index([price])
+  @@index([pricePerM2])
+  @@index([grossAreaM2])
+  @@index([dataQuality])
+  @@index([freshnessStatus])
+  @@index([lastSeenAt])
+  @@index([expiresAt])
+  @@index([listingUrl])
+}
+
+enum ComparableSourceStatus {
+  DISCOVERED
+  CANDIDATE
+  FETCHED
+  PARSED
+  BLOCKED
+  BLOCKED_WITH_SEARCH_DATA
+  DUPLICATE
+  FAILED
+  REJECTED
+  SKIPPED
+}
+
+enum ComparableFreshnessStatus {
+  FRESH
+  STALE
+  EXPIRED
+}
+
+enum ComparableImageSource {
+  JSON_LD
+  OG_IMAGE
+  TWITTER_IMAGE
+  PAGE_GALLERY
+  SEARCH_THUMBNAIL
+  DUPLICATE_MERGE
+  DEFAULT
+  UNKNOWN
+}
+
+enum ComparableFieldSource {
+  SEARCH_TITLE
+  SEARCH_SNIPPET
+  SEARCH_THUMBNAIL
+  JSON_LD
+  OG_META
+  TWITTER_META
+  HTML_VISIBLE_TEXT
+  PAGE_GALLERY
+  DUPLICATE_MERGE
+  MANUAL
+  DEFAULT
+  UNKNOWN
+}
+
+enum ComparableMatchLevel {
+  PROJECT_EXACT
+  NEIGHBORHOOD_EXACT
+  NEIGHBORHOOD_RELAXED
+  DISTRICT_ROOM_AREA
+  NEARBY_NEIGHBORHOOD
+  DISTRICT_GENERAL
+  CITY_GENERAL
+  UNKNOWN
 }
 
 enum MediaType {

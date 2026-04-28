@@ -14,12 +14,11 @@ import {
     publicUserSelect,
 } from "../utils/authInput.js";
 import { badRequest, conflict, forbidden, notFound, unauthorized } from "../utils/errors.js";
-import { sendVerificationCode, verifyCode } from "../services/phoneVerification.js";
 
 function authCookieOptions() {
     const isProduction = process.env.NODE_ENV === "production";
-    const sameSite = process.env.AUTH_COOKIE_SAME_SITE || (isProduction ? "none" : "lax");
-    const domain = String(process.env.AUTH_COOKIE_DOMAIN || "").trim();
+    const sameSite = (isProduction ? "none" : "lax");
+    const domain = String("").trim();
 
     return {
         httpOnly: true,
@@ -155,22 +154,7 @@ export const logout = async (req, res) => {
     return res.json({ ok: true });
 };
 
-export const sendPhoneVerification = async (req, res) => {
-    const userId = req.user?.userId;
-    if (!userId) throw unauthorized();
 
-    const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { id: true, phone: true, phoneVerifiedAt: true },
-    });
-
-    if (!user) throw notFound("Kullanıcı bulunamadı.");
-    if (!user.phone) throw badRequest("Telefon numarası bulunamadı.", "phone");
-    if (user.phoneVerifiedAt) return res.json({ ok: true, alreadyVerified: true });
-
-    const result = await sendVerificationCode({ userId: user.id, phone: user.phone });
-    return res.json({ ok: true, status: result.status });
-};
 
 export const verifyPhone = async (req, res) => {
     const userId = req.user?.userId;
@@ -190,10 +174,6 @@ export const verifyPhone = async (req, res) => {
     if (!user.phone) throw badRequest("Telefon numarası bulunamadı.", "phone");
     if (user.phoneVerifiedAt) return res.json({ ok: true, alreadyVerified: true });
 
-    const result = await verifyCode({ phone: user.phone, code });
-    if (!result.approved) {
-        throw badRequest("Doğrulama kodu hatalı veya süresi dolmuş.", "code");
-    }
 
     const updated = await prisma.user.update({
         where: { id: user.id },

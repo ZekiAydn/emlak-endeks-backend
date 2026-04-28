@@ -766,7 +766,7 @@ function buildPriceBandForSubject(comparables, subjectArea) {
 }
 
 async function fetchHtml(url, options = {}) {
-    const timeoutMs = Number(process.env.HEPSIEMLAK_TIMEOUT_MS || 25000);
+    const timeoutMs = Number(25000);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -898,7 +898,7 @@ async function fetchFirstWorkingCandidate(criteria, sortOptions = {}, options = 
 async function fetchHepsiemlakHtmlComparableBundle(criteria = {}, options = {}) {
     if (!criteria.city && !criteria.district && !criteria.neighborhood) return null;
 
-    const maxItems = Math.min(Number(process.env.HEPSIEMLAK_MAX_ITEMS || 36), 60);
+    const maxItems = Math.min(Number(36), 60);
 
     const latest = await fetchFirstWorkingCandidate(criteria);
     const defaultBaseUrls = latest.url && latest.comparables?.length ? [latest.url] : null;
@@ -963,14 +963,14 @@ async function fetchHepsiemlakHtmlComparableBundle(criteria = {}, options = {}) 
             scope: criteria.neighborhood ? "neighborhood" : criteria.district ? "district" : "city",
             recordCount: rawComparables.length,
             sampleCount: comparables.length,
-            resolverMode: process.env.HEPSIEMLAK_URL_RESOLVER_MODE || "CANDIDATES_ONLY",
+            resolverMode: "CANDIDATES_ONLY",
             searchUrls: {
                 latest: latest.url,
                 low: low.url,
                 high: high.url,
             },
             serpUsed: Boolean(process.env.SERPAPI_KEY) &&
-                (process.env.HEPSIEMLAK_URL_RESOLVER_MODE || "CANDIDATES_ONLY") === "CANDIDATES_THEN_SERP",
+                "CANDIDATES_ONLY" === "CANDIDATES_THEN_SERP",
         },
     };
 }

@@ -1,9 +1,9 @@
 import { applyNeighborhoodSupplements } from "./addressSupplements.js";
 
 const DEFAULT_BASE_URL = "https://api.turkiyeapi.dev/v1";
-const BASE_URL = (process.env.ADDRESS_DIRECTORY_API_URL || DEFAULT_BASE_URL).replace(/\/$/, "");
-const CACHE_TTL_MS = Number(process.env.ADDRESS_DIRECTORY_CACHE_TTL_MS || 1000 * 60 * 60 * 24);
-const REQUEST_TIMEOUT_MS = Number(process.env.ADDRESS_DIRECTORY_TIMEOUT_MS || 8000);
+const BASE_URL = (DEFAULT_BASE_URL).replace(/\/$/, "");
+const CACHE_TTL_MS = Number( 1000 * 60 * 60 * 24);
+const REQUEST_TIMEOUT_MS = Number(8000);
 
 const cache = new Map();
 

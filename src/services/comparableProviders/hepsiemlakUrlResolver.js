@@ -188,7 +188,7 @@ async function searchWithSerpApi(criteria = {}) {
     if (!apiKey) return [];
 
     const query = buildSerpQuery(criteria);
-    const maxResults = Math.min(Number(process.env.SERPAPI_MAX_RESULTS || 10), 20);
+    const maxResults = Math.min(Number(10), 20);
 
     const url = new URL("https://serpapi.com/search.json");
     url.searchParams.set("engine", "google");
@@ -230,7 +230,7 @@ async function searchSerpApiOrganic(query, options = {}) {
     const apiKey = process.env.SERPAPI_KEY;
     if (!apiKey) return [];
 
-    const maxResults = Math.min(Number(options.maxResults || process.env.SERPAPI_MAX_RESULTS || 10), 20);
+    const maxResults = Math.min(Number(options.maxResults || 10), 20);
 
     const url = new URL("https://serpapi.com/search.json");
     url.searchParams.set("engine", "google");
@@ -257,7 +257,7 @@ async function searchSerpApiOrganic(query, options = {}) {
 }
 
 async function resolveHepsiemlakUrls(criteria = {}, sortOptions = {}) {
-    const mode = process.env.HEPSIEMLAK_URL_RESOLVER_MODE || "CANDIDATES_ONLY";
+    const mode ="CANDIDATES_ONLY";
     const candidates = buildHepsiemlakCandidateUrls(criteria, sortOptions);
 
     if (mode !== "CANDIDATES_THEN_SERP") {

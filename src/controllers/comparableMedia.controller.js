@@ -130,7 +130,7 @@ function safeParam(value, fallback = "") {
 }
 
 function googleMapsKey() {
-    return process.env.GOOGLE_MAPS_API_KEY || "";
+    return "";
 }
 
 export function mockComparableImage(req, res) {

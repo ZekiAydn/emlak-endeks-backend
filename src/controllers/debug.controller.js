@@ -30,19 +30,15 @@ function criteriaFromQuery(query = {}) {
 
 function debugEnv() {
     return {
-        comparableProviders: process.env.COMPARABLE_PROVIDERS || "HEPSIEMLAK_HTML,REMAX,SERP_SNIPPET",
-        resolverMode: process.env.HEPSIEMLAK_URL_RESOLVER_MODE || "CANDIDATES_ONLY",
+        comparableProviders: "HEPSIEMLAK_HTML,REMAX,SERP_SNIPPET",
+        resolverMode: "CANDIDATES_ONLY",
         hasSerpApiKey: Boolean(process.env.SERPAPI_KEY),
-        hepsiemlakMaxItems: process.env.HEPSIEMLAK_MAX_ITEMS || null,
-        hepsiemlakTimeoutMs: process.env.HEPSIEMLAK_TIMEOUT_MS || null,
-        serpSnippetMaxQueries: process.env.SERP_SNIPPET_MAX_QUERIES || null,
-        serpSnippetMaxResults: process.env.SERP_SNIPPET_MAX_RESULTS || null,
+        hepsiemlakMaxItems: null,
+        hepsiemlakTimeoutMs: null,
+        serpSnippetMaxQueries: null,
+        serpSnippetMaxResults: null,
         nodeEnv: process.env.NODE_ENV || null,
-        railwayEnvironment:
-            process.env.RAILWAY_ENVIRONMENT ||
-            process.env.RAILWAY_ENVIRONMENT_NAME ||
-            process.env.RAILWAY_SERVICE_NAME ||
-            null,
+        railwayEnvironment: null,
     };
 }
 

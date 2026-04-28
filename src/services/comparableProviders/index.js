@@ -187,7 +187,7 @@ function mergePartialBundles(partialBundles = [], warnings = [], options = {}) {
 }
 
 function selectedProviders() {
-    const raw = process.env.COMPARABLE_PROVIDERS || "HEPSIEMLAK_HTML,REMAX,SERP_SNIPPET";
+    const raw =  "HEPSIEMLAK_HTML,REMAX,SERP_SNIPPET";
     const keys = raw
         .split(",")
         .map((item) => item.trim().toUpperCase())
