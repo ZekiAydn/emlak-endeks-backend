@@ -17,6 +17,8 @@ export function buildComparableSearchQueries(criteria = {}) {
     const neighborhood = cleanString(criteria.neighborhood);
     const location = [city, district, neighborhood].filter(Boolean).join(" ");
     const propertyType = propertyTypeText(criteria.propertyType).toLocaleLowerCase("tr-TR");
+    const searchText = cleanString(criteria.searchText || criteria.listingTitle || criteria.title);
+    const addressText = cleanString(criteria.addressText);
     const roomText =
         Number.isInteger(Number(criteria.roomCount)) && Number.isInteger(Number(criteria.salonCount))
             ? `${Number(criteria.roomCount)}+${Number(criteria.salonCount)}`
@@ -42,12 +44,13 @@ export function buildComparableSearchQueries(criteria = {}) {
     ];
 
     return unique([
+        [location, transaction, propertyType, searchText, roomText].filter(Boolean).join(" "),
+        [location, transaction, propertyType, addressText, roomText].filter(Boolean).join(" "),
         [base, areaText].filter(Boolean).join(" "),
         ...areaVariants.map((area) => [location, roomText, transaction, propertyType, area].filter(Boolean).join(" ")),
-        ...providerSites.map((site) => [site, location, roomText, transaction, propertyType].filter(Boolean).join(" ")),
+        ...providerSites.map((site) => [site, location, roomText, transaction, propertyType, searchText].filter(Boolean).join(" ")),
         [location, roomText, transaction, propertyType, "ilan fiyat"].filter(Boolean).join(" "),
     ]);
 }
 
 export default buildComparableSearchQueries;
-

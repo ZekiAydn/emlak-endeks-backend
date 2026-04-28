@@ -199,6 +199,8 @@ export function buildCriteriaFromReportAndBody(body = {}, report = null) {
 
     return {
         reportId: firstValue(body.reportId, report?.id) || null,
+        title: firstValue(body.title, body.listingTitle, report?.property?.title),
+        searchText: firstValue(body.searchText, body.listingTitle, body.title, report?.property?.title),
         city: firstValue(body.city, report?.city, property.city),
         district: firstValue(body.district, report?.district, property.district),
         neighborhood: firstValue(body.neighborhood, report?.neighborhood, property.neighborhood),

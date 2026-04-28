@@ -25,18 +25,29 @@ function criteriaFromQuery(query = {}) {
         neighborhood: String(query.neighborhood || "").trim(),
         reportType: String(query.reportType || "").trim(),
         propertyType: String(query.propertyType || "").trim(),
+        searchText: String(query.searchText || query.listingTitle || query.title || "").trim(),
+        addressText: String(query.addressText || "").trim(),
+        roomText: String(query.roomText || "").trim(),
     };
 }
 
 function debugEnv() {
     return {
         comparableProviders: process.env.COMPARABLE_PROVIDERS || "SERP_SNIPPET",
-        hepsiemlakHtmlEnabled: process.env.COMPARABLE_HEPSIEMLAK_HTML_ENABLED === "true",
-        remaxEnabled: process.env.COMPARABLE_REMAX_ENABLED === "true",
+        sahibindenHtmlEnabled: process.env.COMPARABLE_SAHIBINDEN_HTML_ENABLED !== "false",
+        emlakjetHtmlEnabled: process.env.COMPARABLE_EMLAKJET_HTML_ENABLED !== "false",
+        hepsiemlakHtmlEnabled: process.env.COMPARABLE_HEPSIEMLAK_HTML_ENABLED !== "false",
+        remaxEnabled: process.env.COMPARABLE_REMAX_ENABLED !== "false",
         resolverMode: process.env.HEPSIEMLAK_URL_RESOLVER_MODE || "CANDIDATES_ONLY",
         hasSerpApiKey: Boolean(process.env.SERPAPI_KEY),
+        emlakjetMaxPages: process.env.EMLAKJET_MAX_PAGES || null,
+        emlakjetMaxItems: process.env.EMLAKJET_MAX_ITEMS || null,
+        sahibindenMaxUrls: process.env.SAHIBINDEN_MAX_URLS || null,
+        sahibindenBrowserFallbackEnabled: process.env.SAHIBINDEN_BROWSER_FALLBACK_ENABLED !== "false",
+        hasSahibindenCookie: Boolean(process.env.SAHIBINDEN_COOKIE),
         hepsiemlakMaxItems: process.env.HEPSIEMLAK_MAX_ITEMS || null,
         hepsiemlakTimeoutMs: process.env.HEPSIEMLAK_TIMEOUT_MS || null,
+        hepsiemlakBrowserFallbackEnabled: process.env.HEPSIEMLAK_BROWSER_FALLBACK_ENABLED !== "false",
         serpSnippetMaxQueries: process.env.SERP_SNIPPET_MAX_QUERIES || null,
         serpSnippetMaxResults: process.env.SERP_SNIPPET_MAX_RESULTS || null,
         nodeEnv: process.env.NODE_ENV || null,
@@ -172,7 +183,9 @@ export const fetchComparables = async (req, res) => {
 
 export const runComparables = async (req, res) => {
     const criteria = criteriaFromQuery(req.query);
-    const bundle = await fetchComparableBundle(criteria, {});
+    const bundle = await fetchComparableBundle(criteria, {
+        subjectRoomText: criteria.roomText || null,
+    });
     const comparables = Array.isArray(bundle?.comparables) ? bundle.comparables : [];
 
     res.json({

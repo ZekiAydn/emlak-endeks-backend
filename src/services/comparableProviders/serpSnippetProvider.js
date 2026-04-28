@@ -26,6 +26,30 @@ function propertySearchText(criteria = {}) {
     return comparableSearchText(criteria);
 }
 
+function compactQueryParts(parts = []) {
+    return parts
+        .map((part) => cleanText(part))
+        .filter(Boolean)
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function extraSearchTerms(criteria = {}) {
+    const terms = [];
+    const roomText = cleanText(criteria.subjectRoomText || criteria.roomText);
+    const searchText = cleanText(criteria.searchText || criteria.listingTitle || criteria.title);
+    const addressText = cleanText(criteria.addressText);
+
+    if (searchText) terms.push(searchText);
+    if (addressText && !searchText.toLocaleLowerCase("tr-TR").includes(addressText.toLocaleLowerCase("tr-TR"))) {
+        terms.push(addressText);
+    }
+    if (roomText) terms.push(roomText);
+
+    return [...new Set(terms)];
+}
+
 function sourceName(url) {
     try {
         const host = new URL(url).hostname.replace(/^www\./, "");
@@ -189,6 +213,8 @@ function buildQueries(criteria = {}) {
     const type = propertySearchText(criteria);
     const base = `${location} ${transaction} ${type}`.trim();
     const category = propertyCategory(criteria);
+    const extras = extraSearchTerms(criteria);
+    const focused = compactQueryParts([base, ...extras]);
     const categoryTerms =
         category === "land"
             ? ["site:sahibinden.com/arsa", "site:hepsiemlak.com arsa", "site:remax.com.tr arsa-arazi", "site:emlakjet.com satılık arsa"]
@@ -197,8 +223,9 @@ function buildQueries(criteria = {}) {
               : ["site:sahibinden.com", "site:hepsiemlak.com", "site:remax.com.tr", "site:emlakjet.com"];
 
     return [
-        `${base} ${transaction === "kiralık" ? "kira" : "fiyat"}`,
-        ...categoryTerms.map((term) => `${term} ${base}`),
+        focused || `${base} ${transaction === "kiralık" ? "kira" : "fiyat"}`,
+        compactQueryParts([base, transaction === "kiralık" ? "kira" : "fiyat"]),
+        ...categoryTerms.map((term) => compactQueryParts([term, focused || base])),
     ].filter(Boolean);
 }
 
@@ -408,18 +435,41 @@ async function fetchSerpSnippetComparableBundle(criteria = {}, options = {}) {
         };
     }
 
-    const maxQueries = Math.max(1, Math.min(Number(process.env.SERP_SNIPPET_MAX_QUERIES || 4), 5));
-    const maxResults = Math.max(5, Math.min(Number(process.env.SERP_SNIPPET_MAX_RESULTS || process.env.SERPAPI_MAX_RESULTS || 10), 20));
-    const queries = buildQueries(criteria).slice(0, maxQueries);
+    const maxQueries = Math.max(1, Math.min(Number(process.env.SERP_SNIPPET_MAX_QUERIES || 8), 8));
+    const maxResults = Math.max(5, Math.min(Number(process.env.SERP_SNIPPET_MAX_RESULTS || 20), 20));
+    const queryCriteria = {
+        ...criteria,
+        subjectRoomText: options.subjectRoomText,
+    };
+    const queries = buildQueries(queryCriteria).slice(0, maxQueries);
     const warnings = [];
     const organicItems = [];
+
+    console.log("[SERP_SNIPPET] search queries", {
+        queries,
+        maxQueries,
+        maxResults,
+        criteria: {
+            city: criteria.city,
+            district: criteria.district,
+            neighborhood: criteria.neighborhood,
+            propertyType: criteria.propertyType,
+            searchText: criteria.searchText || criteria.listingTitle || criteria.title || null,
+            addressText: criteria.addressText || null,
+            subjectRoomText: options.subjectRoomText || null,
+        },
+    });
 
     const searchResults = await Promise.allSettled(
         queries.map((query) => searchSerpApiOrganic(query, { maxResults }))
     );
 
-    searchResults.forEach((result) => {
+    searchResults.forEach((result, index) => {
         if (result.status === "fulfilled") {
+            console.log("[SERP_SNIPPET] query result", {
+                query: queries[index],
+                organicCount: Array.isArray(result.value) ? result.value.length : 0,
+            });
             organicItems.push(...result.value);
             return;
         }
@@ -434,6 +484,19 @@ async function fetchSerpSnippetComparableBundle(criteria = {}, options = {}) {
             .filter(Boolean)
     );
     const candidateComparables = category === "residential" ? preferTargetRoom(unique, options.subjectRoomText) : unique;
+    const sourceCounts = candidateComparables.reduce((acc, item) => {
+        const key = item.source || "Unknown";
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+    }, {});
+
+    console.log("[SERP_SNIPPET] normalized", {
+        organicCount: organicItems.length,
+        uniqueCount: unique.length,
+        candidateCount: candidateComparables.length,
+        sourceCounts,
+        withImageCount: candidateComparables.filter((item) => item.imageUrl).length,
+    });
 
     if (candidateComparables.length < 12) {
         warnings.push(`SERP_SNIPPET: 12 emsal için yeterli fiyatlı sonuç bulunamadı (${candidateComparables.length})`);

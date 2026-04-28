@@ -206,10 +206,22 @@ function hasListingPhoto(item) {
 function filterComparablesWithPhotos(comparables = []) {
     const input = Array.isArray(comparables) ? comparables : [];
     const filtered = input.filter(hasListingPhoto);
+    const minKeep = Number(process.env.COMPARABLE_MIN_PHOTO_FILTERED || 12);
+
+    if (input.length > 0 && filtered.length < Math.min(minKeep, input.length)) {
+        return {
+            comparables: input,
+            removedCount: 0,
+            skipped: true,
+            realPhotoCount: filtered.length,
+        };
+    }
 
     return {
         comparables: filtered,
         removedCount: Math.max(0, input.length - filtered.length),
+        skipped: false,
+        realPhotoCount: filtered.length,
     };
 }
 
@@ -221,6 +233,17 @@ function comparablesFrom(body, report) {
         [];
 
     return raw.map(normalizeComparable);
+}
+
+function sourceMetaForProvider(sourceMeta, providerName) {
+    if (!sourceMeta || !providerName) return null;
+    if (sourceMeta.provider === providerName) return sourceMeta;
+
+    const detail = Array.isArray(sourceMeta.providerDetails)
+        ? sourceMeta.providerDetails.find((item) => item?.provider === providerName)
+        : null;
+
+    return detail || null;
 }
 
 function mergeComparablesJson(existingValue, incomingValue) {
@@ -590,6 +613,15 @@ export const autofillExternalData = async (req, res) => {
         propertyType: cleanString(body.propertyType ?? buildingDetails.propertyType ?? ""),
         reportType: cleanString(body.reportType ?? location.reportType ?? report.reportType ?? ""),
         valuationType: valuationTypeValue(body.valuationType, body.comparablesJson?.valuationType, report.comparablesJson?.valuationType),
+        searchText: cleanString(
+            body.searchText ??
+                body.listingTitle ??
+                body.title ??
+                body.comparablesJson?.searchText ??
+                report.property?.title ??
+                ""
+        ),
+        addressText: cleanString(body.addressText ?? location.addressText ?? report.addressText ?? ""),
     };
     const parcelCriteria = {
         city: cleanString(body.tkgmCity ?? location.tkgmCity ?? remaxCriteria.city),
@@ -611,6 +643,7 @@ export const autofillExternalData = async (req, res) => {
         comparableCategory === "residential" && propertyDetails.roomCount !== undefined && propertyDetails.roomCount !== null
             ? `${propertyDetails.roomCount}${propertyDetails.salonCount !== undefined && propertyDetails.salonCount !== null ? `+${propertyDetails.salonCount}` : ""}`
             : null;
+    if (subjectRoomText) remaxCriteria.roomText = subjectRoomText;
 
     const warnings = [];
     let parcelLookup = report.comparablesJson?.parcelLookup || null;
@@ -677,14 +710,18 @@ export const autofillExternalData = async (req, res) => {
         if (photoFilter.removedCount > 0) {
             warnings.push(`${photoFilter.removedCount} fotoğrafsız emsal listeden çıkarıldı.`);
         }
+        if (photoFilter.skipped) {
+            warnings.push(`Fotoğraf filtresi ${photoFilter.realPhotoCount} gerçek fotoğraflı emsal bıraktığı için emsal havuzunu daraltmamak adına uygulanmadı.`);
+        }
 
         bundle = rebuildComparableBundleFromComparables(
             {
                 ...bundle,
                 sourceMeta: {
                     ...(bundle.sourceMeta || {}),
-                    photoRequired: true,
+                    photoRequired: !photoFilter.skipped,
                     removedWithoutPhoto: photoFilter.removedCount,
+                    realPhotoCount: photoFilter.realPhotoCount,
                 },
             },
             photoFilter.comparables,
@@ -693,6 +730,11 @@ export const autofillExternalData = async (req, res) => {
     }
 
     const hasComparables = Array.isArray(bundle?.comparables) && bundle.comparables.length > 0;
+    const emlakjetSource = hasComparables ? sourceMetaForProvider(bundle.sourceMeta, "EMLAKJET_HTML") : null;
+    const remaxSource = hasComparables ? sourceMetaForProvider(bundle.sourceMeta, "REMAX") : null;
+    const hepsiemlakSource = hasComparables ? sourceMetaForProvider(bundle.sourceMeta, "HEPSIEMLAK_HTML") : null;
+    const sahibindenSource = hasComparables ? sourceMetaForProvider(bundle.sourceMeta, "SAHIBINDEN_HTML") : null;
+    const serpSnippetSource = hasComparables ? sourceMetaForProvider(bundle.sourceMeta, "SERP_SNIPPET") : null;
 
     if (!hasComparables && !parcelLookup) {
         throw badRequest(
@@ -718,15 +760,11 @@ export const autofillExternalData = async (req, res) => {
                   comparables: bundle.comparables,
                   groups: bundle.groups,
                   comparableSource: bundle.sourceMeta,
-                  remaxSource: bundle.sourceMeta?.provider === "REMAX" ? bundle.sourceMeta : report.comparablesJson?.remaxSource || null,
-                  hepsiemlakSource:
-                      bundle.sourceMeta?.provider === "HEPSIEMLAK_HTML"
-                          ? bundle.sourceMeta
-                          : report.comparablesJson?.hepsiemlakSource || null,
-                  serpSnippetSource:
-                      bundle.sourceMeta?.provider === "SERP_SNIPPET"
-                          ? bundle.sourceMeta
-                          : report.comparablesJson?.serpSnippetSource || null,
+                  emlakjetSource: emlakjetSource || report.comparablesJson?.emlakjetSource || null,
+                  remaxSource: remaxSource || report.comparablesJson?.remaxSource || null,
+                  hepsiemlakSource: hepsiemlakSource || report.comparablesJson?.hepsiemlakSource || null,
+                  sahibindenSource: sahibindenSource || report.comparablesJson?.sahibindenSource || null,
+                  serpSnippetSource: serpSnippetSource || report.comparablesJson?.serpSnippetSource || null,
               }
             : {
                   comparables: existingComparables,

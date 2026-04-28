@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
 import { resolveHepsiemlakUrls, withSort } from "./hepsiemlakUrlResolver.js";
+import { getBrowser } from "../headlessBrowser.js";
 
 const HEPSIEMLAK_BASE_URL = "https://www.hepsiemlak.com";
 const GROUP_SIZE = 6;
@@ -801,12 +802,20 @@ async function fetchHtml(url, options = {}) {
         };
 
         if (!response.ok) {
+            if (process.env.HEPSIEMLAK_BROWSER_FALLBACK_ENABLED !== "false") {
+                return fetchHtmlWithBrowser(url, options, result);
+            }
+
             const error = new Error(`Hepsiemlak araması cevap vermedi (${response.status}): ${html.slice(0, 300)}`);
             error.fetchResult = result;
             throw error;
         }
 
         if (!html || html.length < 1000) {
+            if (process.env.HEPSIEMLAK_BROWSER_FALLBACK_ENABLED !== "false") {
+                return fetchHtmlWithBrowser(url, options, result);
+            }
+
             const error = new Error(`Hepsiemlak aramasından beklenen HTML alınamadı. Uzunluk: ${html.length}`);
             error.fetchResult = result;
             throw error;
@@ -815,6 +824,69 @@ async function fetchHtml(url, options = {}) {
         return options.includeMeta ? result : html;
     } finally {
         clearTimeout(timer);
+    }
+}
+
+async function fetchHtmlWithBrowser(url, options = {}, directResult = {}) {
+    console.log("[HEPSIEMLAK] browser fallback", {
+        url,
+        directStatus: directResult.status || null,
+        directHtmlLength: directResult.htmlLength || 0,
+    });
+
+    const browser = await getBrowser();
+    const page = await browser.newPage({
+        viewport: { width: 1440, height: 1200, deviceScaleFactor: 1 },
+        locale: "tr-TR",
+        userAgent: REQUEST_HEADERS["user-agent"],
+        extraHTTPHeaders: {
+            "accept-language": REQUEST_HEADERS["accept-language"],
+            referer: `${HEPSIEMLAK_BASE_URL}/`,
+        },
+    });
+
+    try {
+        const response = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 90000 });
+        await page.waitForLoadState("networkidle", { timeout: 15000 }).catch(() => {});
+
+        const status = response?.status() || null;
+        const html = await page.content();
+        const result = {
+            url,
+            status: status || 200,
+            ok: !status || status < 400,
+            contentType: response?.headers()?.["content-type"] || "text/html",
+            html,
+            htmlLength: html.length,
+            bodyStart: html.slice(0, 500),
+            browserFallback: true,
+            directStatus: directResult.status || null,
+            directBodyStart: directResult.bodyStart || null,
+        };
+
+        console.log("[HEPSIEMLAK] browser response", {
+            url,
+            status,
+            ok: result.ok,
+            size: html.length,
+            title: cleanText(await page.title()).slice(0, 120),
+        });
+
+        if (!result.ok) {
+            const error = new Error(`Hepsiemlak browser fallback cevap vermedi (${status}): ${html.slice(0, 300)}`);
+            error.fetchResult = result;
+            throw error;
+        }
+
+        if (!html || html.length < 1000) {
+            const error = new Error(`Hepsiemlak browser fallback beklenen HTML'i alamadı. Uzunluk: ${html.length}`);
+            error.fetchResult = result;
+            throw error;
+        }
+
+        return options.includeMeta ? result : html;
+    } finally {
+        await page.close().catch(() => {});
     }
 }
 

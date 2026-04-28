@@ -253,7 +253,14 @@ async function searchSerpApiOrganic(query, options = {}) {
         throw new Error(`SerpAPI cevap vermedi (${response.status}): ${JSON.stringify(json).slice(0, 300)}`);
     }
 
-    return Array.isArray(json?.organic_results) ? json.organic_results : [];
+    const organic = Array.isArray(json?.organic_results) ? json.organic_results : [];
+    console.log("[SERPAPI] organic result", {
+        query,
+        maxResults,
+        organicCount: organic.length,
+    });
+
+    return organic;
 }
 
 async function resolveHepsiemlakUrls(criteria = {}, sortOptions = {}) {

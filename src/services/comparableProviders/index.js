@@ -1,11 +1,21 @@
 import { fetchRemaxProviderBundle } from "./remaxProvider.js";
 import { fetchHepsiemlakHtmlComparableBundle } from "./hepsiemlakHtmlProvider.js";
 import { fetchSerpSnippetComparableBundle } from "./serpSnippetProvider.js";
+import { fetchEmlakjetHtmlComparableBundle } from "./emlakjetHtmlProvider.js";
+import { fetchSahibindenHtmlComparableBundle } from "./sahibindenHtmlProvider.js";
 
 const PROVIDERS = {
+    EMLAKJET_HTML: {
+        name: "EMLAKJET_HTML",
+        fetch: fetchEmlakjetHtmlComparableBundle,
+    },
     HEPSIEMLAK_HTML: {
         name: "HEPSIEMLAK_HTML",
         fetch: fetchHepsiemlakHtmlComparableBundle,
+    },
+    SAHIBINDEN_HTML: {
+        name: "SAHIBINDEN_HTML",
+        fetch: fetchSahibindenHtmlComparableBundle,
     },
     REMAX: {
         name: "REMAX",
@@ -20,15 +30,13 @@ const PROVIDERS = {
 const MIN_COMPLETE_COMPARABLES = 12;
 const GROUP_SIZE = 6;
 const MAX_OUTPUT_COMPARABLES = 24;
-const DEFAULT_COMPARABLE_PROVIDERS = "SERP_SNIPPET";
-
-function envFlag(name) {
-    return String(process.env[name] || "").trim().toLowerCase() === "true";
-}
+const DEFAULT_COMPARABLE_PROVIDERS = "SAHIBINDEN_HTML,HEPSIEMLAK_HTML,REMAX,EMLAKJET_HTML,SERP_SNIPPET";
 
 function providerEnabled(key) {
-    if (key === "HEPSIEMLAK_HTML") return envFlag("COMPARABLE_HEPSIEMLAK_HTML_ENABLED");
-    if (key === "REMAX") return envFlag("COMPARABLE_REMAX_ENABLED");
+    if (key === "EMLAKJET_HTML") return process.env.COMPARABLE_EMLAKJET_HTML_ENABLED !== "false";
+    if (key === "HEPSIEMLAK_HTML") return process.env.COMPARABLE_HEPSIEMLAK_HTML_ENABLED !== "false";
+    if (key === "SAHIBINDEN_HTML") return process.env.COMPARABLE_SAHIBINDEN_HTML_ENABLED !== "false";
+    if (key === "REMAX") return process.env.COMPARABLE_REMAX_ENABLED !== "false";
     return true;
 }
 
@@ -60,6 +68,32 @@ function chooseMidComparables(sortedItems, count, excludedKeys) {
     if (!candidates.length) return [];
     const start = Math.max(0, Math.floor(candidates.length / 2) - Math.floor(count / 2));
     return candidates.slice(start, start + count);
+}
+
+function orderComparablesForOutput(comparables = [], groups = {}) {
+    const byKey = new Map(
+        comparables
+            .map((item) => [comparableKey(item), item])
+            .filter(([key]) => !!key)
+    );
+    const ordered = [];
+    const used = new Set();
+
+    ["low", "mid", "high", "stale"].forEach((group) => {
+        (groups?.[group] || []).forEach((key) => {
+            const item = byKey.get(key);
+            if (!item || used.has(key)) return;
+            ordered.push(item);
+            used.add(key);
+        });
+    });
+
+    const remainder = comparables.filter((item) => {
+        const key = comparableKey(item);
+        return key ? !used.has(key) : true;
+    });
+
+    return [...ordered, ...remainder].slice(0, MAX_OUTPUT_COMPARABLES);
 }
 
 function buildGroups(comparables = []) {
@@ -174,10 +208,23 @@ function buildMarketProjection(comparables = []) {
 }
 
 function mergePartialBundles(partialBundles = [], warnings = [], options = {}) {
-    const comparables = uniqueComparables(partialBundles.flatMap((bundle) => bundle.comparables || [])).slice(0, MAX_OUTPUT_COMPARABLES);
-    const groups = buildGroups(comparables);
+    const pool = uniqueComparables(partialBundles.flatMap((bundle) => bundle.comparables || []));
+    const groups = buildGroups(pool);
+    const comparables = orderComparablesForOutput(pool, groups);
     const tagged = tagGroups(comparables, groups);
     const providers = partialBundles.map((bundle) => bundle.sourceMeta?.provider).filter(Boolean);
+    const providerDetails = partialBundles.map((bundle) => ({
+        provider: bundle.sourceMeta?.provider || "UNKNOWN",
+        recordCount: bundle.sourceMeta?.recordCount ?? null,
+        sampleCount: Array.isArray(bundle.comparables) ? bundle.comparables.length : bundle.sourceMeta?.sampleCount ?? null,
+        scope: bundle.sourceMeta?.scope || null,
+        searchUrls: bundle.sourceMeta?.searchUrls || null,
+        searchQueries: bundle.sourceMeta?.searchQueries || null,
+    }));
+    const recordCount = partialBundles.reduce((sum, bundle) => {
+        const count = toNumber(bundle.sourceMeta?.recordCount);
+        return sum + (Number.isFinite(count) ? count : Array.isArray(bundle.comparables) ? bundle.comparables.length : 0);
+    }, 0);
 
     return {
         comparables: tagged,
@@ -189,8 +236,9 @@ function mergePartialBundles(partialBundles = [], warnings = [], options = {}) {
         sourceMeta: {
             provider: providers.length > 1 ? "MIXED" : providers[0] || "MIXED",
             providers,
+            providerDetails,
             fetchedAt: new Date().toISOString(),
-            recordCount: tagged.length,
+            recordCount,
             sampleCount: tagged.length,
             confidence: providers.includes("SERP_SNIPPET") ? "low" : "medium",
         },
@@ -242,6 +290,21 @@ async function fetchComparableBundle(criteria = {}, options = {}) {
     const warnings = [];
     const providers = selectedProviders();
     const partialBundles = [];
+    const stopAfterComplete = process.env.COMPARABLE_STOP_AFTER_COMPLETE === "true";
+
+    console.log("[COMPARABLES] provider plan", {
+        providers: providers.map((provider) => provider.name),
+        stopAfterComplete,
+        minCompleteComparables: MIN_COMPLETE_COMPARABLES,
+        maxOutputComparables: MAX_OUTPUT_COMPARABLES,
+        city: criteria.city,
+        district: criteria.district,
+        neighborhood: criteria.neighborhood,
+        propertyType: criteria.propertyType,
+        subjectRoomText: options.subjectRoomText || null,
+        subjectArea: options.subjectArea || null,
+        searchText: criteria.searchText || null,
+    });
 
     for (const [index, provider] of providers.entries()) {
         try {
@@ -277,16 +340,19 @@ async function fetchComparableBundle(criteria = {}, options = {}) {
                     },
                 };
 
-                if (count >= MIN_COMPLETE_COMPARABLES && !partialBundles.length) {
+                if (stopAfterComplete && count >= MIN_COMPLETE_COMPARABLES && !partialBundles.length) {
                     return normalizedBundle;
                 }
 
                 partialBundles.push(normalizedBundle);
-                if (uniqueComparables(partialBundles.flatMap((partial) => partial.comparables || [])).length >= MIN_COMPLETE_COMPARABLES) {
+                if (
+                    stopAfterComplete &&
+                    uniqueComparables(partialBundles.flatMap((partial) => partial.comparables || [])).length >= MIN_COMPLETE_COMPARABLES
+                ) {
                     return mergePartialBundles(partialBundles, warnings, options);
                 }
 
-                if (hasMoreProviders) {
+                if (hasMoreProviders && count < MIN_COMPLETE_COMPARABLES) {
                     warnings.push(`${provider.name}: ${MIN_COMPLETE_COMPARABLES} emsal için kısmi sonuç bulundu (${count}), diğer kaynaklarla tamamlanıyor.`);
                 }
                 continue;
