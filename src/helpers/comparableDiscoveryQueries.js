@@ -27,6 +27,7 @@ function listingPhrase(input = {}) {
         : "satılık";
     const propertyType = cleanString(input.propertyType).toLocaleLowerCase("tr-TR");
     if (propertyType.includes("villa")) return `${transaction} villa`;
+    if (propertyType.includes("müstakil") || propertyType.includes("detached")) return `${transaction} müstakil ev`;
     if (propertyType.includes("arsa") || propertyType.includes("land")) return `${transaction} arsa`;
     if (propertyType.includes("ofis") || propertyType.includes("commercial")) return `${transaction} iş yeri`;
     return `${transaction} daire`;
@@ -90,7 +91,7 @@ export function generateComparableDiscoveryQueries(input = {}) {
     ];
 
     const baseQueries = unique(levelQueries);
-    const siteQueries = sites.flatMap((site) => baseQueries.map((query) => `site:${site} ${query}`));
+    const siteQueries = baseQueries.flatMap((query) => sites.map((site) => `site:${site} ${query}`));
     return unique(siteQueries).slice(0, maxQueries);
 }
 
