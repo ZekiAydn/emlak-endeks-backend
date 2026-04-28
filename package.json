@@ -11,8 +11,7 @@
     "start": "node src/index.js",
     "postinstall": "npx playwright install --with-deps chromium",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate deploy",
-    "seed": "node prisma/seed.cjs"
+    "prisma:migrate": "prisma migrate deploy"
   },
   "repository": {
     "type": "git",
@@ -42,8 +41,7 @@
     "node-fetch": "^3.3.2",
     "nodemailer": "^8.0.7",
     "playwright": "^1.59.1",
-    "prisma": "^6.19.0",
-    "twilio": "^6.0.0"
+    "prisma": "^6.19.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.11"

@@ -2,6 +2,8 @@ import { Router } from "express";
 import authRoutes from "./auth.routes.js";
 import debugRoutes from "./debug.routes.js";
 import adminRoutes from "./admin.routes.js";
+import comparableAdminRoutes from "./comparableAdmin.routes.js";
+import internalRoutes from "./internal.routes.js";
 import userRoutes from "./user.routes.js";
 import clientRoutes from "./client.routes.js";
 import reportRoutes from "./report.routes.js";
@@ -14,8 +16,11 @@ const router = Router();
 
 router.use(authRoutes);
 router.use(debugRoutes);
+router.use(internalRoutes);
 router.use(comparableMediaRoutes);
 router.use("/admin", adminRoutes); // ✅ sadece /admin/* için
+router.use("/api/admin", comparableAdminRoutes);
+router.use("/admin", comparableAdminRoutes);
 router.use(userRoutes);
 router.use(locationRoutes);
 router.use(clientRoutes);

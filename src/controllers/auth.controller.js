@@ -14,8 +14,7 @@ import {
     findIdentityConflict,
     publicUserSelect,
 } from "../utils/authInput.js";
-import { badRequest, conflict, forbidden, notFound, unauthorized } from "../utils/errors.js";
-import { sendVerificationCode, verifyCode } from "../services/phoneVerification.js";
+import { badRequest, conflict, notFound, unauthorized } from "../utils/errors.js";
 import { isEmailConfigured, sendTemporaryPasswordEmail } from "../services/email.js";
 
 function authCookieOptions() {
@@ -50,15 +49,8 @@ export const register = async (req, res) => {
         rePassword,
         passwordConfirm,
         confirmPassword,
-        adminCode,
         fullName,
     } = req.body || {};
-
-    const expectedAdminCode = process.env.ADMIN_REGISTER_CODE || "123456";
-    const isAdminRegistration = Boolean(String(adminCode || "").trim());
-    if (isAdminRegistration && String(adminCode || "").trim() !== expectedAdminCode) {
-        throw forbidden("Admin kodu hatalı.");
-    }
 
     const phone = normalizePhone(rawPhone);
     const phoneError = validatePhone(phone);
@@ -100,7 +92,7 @@ export const register = async (req, res) => {
             email,
             phone,
             passwordHash,
-            role: isAdminRegistration ? "ADMIN" : "AGENT",
+            role: "AGENT",
             subscriptionPlan: "FREE",
             subscriptionStatus: "ACTIVE",
             phoneVerifiedAt: new Date(),
@@ -202,53 +194,4 @@ export const login = async (req, res) => {
 export const logout = async (req, res) => {
     res.clearCookie(cookieName(), authCookieOptions());
     return res.json({ ok: true });
-};
-
-export const sendPhoneVerification = async (req, res) => {
-    const userId = req.user?.userId;
-    if (!userId) throw unauthorized();
-
-    const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { id: true, phone: true, phoneVerifiedAt: true },
-    });
-
-    if (!user) throw notFound("Kullanıcı bulunamadı.");
-    if (!user.phone) throw badRequest("Telefon numarası bulunamadı.", "phone");
-    if (user.phoneVerifiedAt) return res.json({ ok: true, alreadyVerified: true });
-
-    const result = await sendVerificationCode({ userId: user.id, phone: user.phone });
-    return res.json({ ok: true, status: result.status });
-};
-
-export const verifyPhone = async (req, res) => {
-    const userId = req.user?.userId;
-    if (!userId) throw unauthorized();
-
-    const code = String(req.body?.code || "").replace(/\D/g, "");
-    if (code.length < 4 || code.length > 10) {
-        throw badRequest("Geçerli doğrulama kodunu girin.", "code");
-    }
-
-    const user = await prisma.user.findUnique({
-        where: { id: userId },
-        select: { id: true, phone: true, phoneVerifiedAt: true },
-    });
-
-    if (!user) throw notFound("Kullanıcı bulunamadı.");
-    if (!user.phone) throw badRequest("Telefon numarası bulunamadı.", "phone");
-    if (user.phoneVerifiedAt) return res.json({ ok: true, alreadyVerified: true });
-
-    const result = await verifyCode({ phone: user.phone, code });
-    if (!result.approved) {
-        throw badRequest("Doğrulama kodu hatalı veya süresi dolmuş.", "code");
-    }
-
-    const updated = await prisma.user.update({
-        where: { id: user.id },
-        data: { phoneVerifiedAt: new Date() },
-        select: publicUserSelect(),
-    });
-
-    return res.json({ ok: true, user: updated });
 };

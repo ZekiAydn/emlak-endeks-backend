@@ -13,10 +13,13 @@ import {
     buildAiNote,
 } from "../utils/reportHelpers.js";
 import { badRequest, notFound } from "../utils/errors.js";
-import { fetchComparableBundle, rebuildComparableBundleFromComparables } from "../services/comparableProviders/index.js";
-import { enrichComparableImages } from "../services/comparableImageEnrichment.js";
 import { propertyCategory } from "../services/propertyCategory.js";
 import { applyValuationPolicy } from "../services/valuationPolicy.js";
+import {
+    buildComparableBundleFromDbSelection,
+    createIngestionJobIfComparablePoolLow,
+    selectComparablesForReport,
+} from "../services/comparableDbSelectionService.js";
 
 
 const mediaSelect = {
@@ -162,8 +165,8 @@ function normalizeComparable(c) {
         source: c?.source ?? null,
         sourceUrl: c?.sourceUrl ?? null,
         price: toNum(c?.price),
-        netArea: toNum(c?.netArea),
-        grossArea: toNum(c?.grossArea),
+        netArea: toNum(c?.netArea ?? c?.netAreaM2 ?? c?.netM2),
+        grossArea: toNum(c?.grossArea ?? c?.grossAreaM2 ?? c?.grossM2),
         floor,
         floorText: c?.floorText ?? (floor === null && typeof c?.floor === "string" ? c.floor : null),
         totalFloors: toNum(c?.totalFloors),
@@ -176,11 +179,21 @@ function normalizeComparable(c) {
         imageSource: c?.imageSource ?? null,
         imageAttribution: c?.imageAttribution ?? null,
         address: c?.address ?? null,
+        city: c?.city ?? null,
+        district: c?.district ?? null,
+        neighborhood: c?.neighborhood ?? null,
+        compoundName: c?.compoundName ?? null,
+        propertyType: c?.propertyType ?? null,
         externalId: c?.externalId ?? null,
         createdAt: c?.createdAt ?? null,
         group: c?.group ?? null,
+        comparableGroup: c?.comparableGroup ?? c?.group ?? null,
         provider: c?.provider ?? null,
-        pricePerSqm: toNum(c?.pricePerSqm),
+        pricePerSqm: toNum(c?.pricePerSqm ?? c?.pricePerM2),
+        dataQuality: toNum(c?.dataQuality),
+        matchScore: toNum(c?.matchScore),
+        matchLevel: c?.matchLevel ?? null,
+        freshnessStatus: c?.freshnessStatus ?? null,
         latitude: toNum(c?.latitude),
         longitude: toNum(c?.longitude),
     };
@@ -233,6 +246,33 @@ function comparablesFrom(body, report) {
         [];
 
     return raw.map(normalizeComparable);
+}
+
+function averageNumber(values = []) {
+    const valid = values.map(Number).filter(Number.isFinite);
+    if (!valid.length) return null;
+    return Math.round((valid.reduce((sum, value) => sum + value, 0) / valid.length) * 100) / 100;
+}
+
+function buildComparableAiSummary(comparables = [], meta = {}) {
+    const list = Array.isArray(comparables) ? comparables : [];
+    const byGroup = (group) => list.filter((item) => cleanString(item.group || item.comparableGroup).toLowerCase() === group);
+    const sameLevelCount = (levels = []) => list.filter((item) => levels.includes(item.matchLevel)).length;
+
+    return {
+        totalCandidateCount: meta?.candidateCount ?? null,
+        selectedComparableCount: list.length,
+        lowBandAveragePricePerM2: averageNumber(byGroup("low").map((item) => item.pricePerM2)),
+        midBandAveragePricePerM2: averageNumber(byGroup("mid").map((item) => item.pricePerM2)),
+        highBandAveragePricePerM2: averageNumber(byGroup("high").map((item) => item.pricePerM2)),
+        averagePricePerM2: averageNumber(list.map((item) => item.pricePerM2)),
+        imageCount: meta?.imageCount ?? list.filter((item) => cleanString(item.imageUrl) && item.imageSource !== "DEFAULT").length,
+        freshCount: meta?.freshCount ?? list.filter((item) => item.freshnessStatus === "FRESH").length,
+        staleCount: meta?.staleCount ?? list.filter((item) => item.freshnessStatus === "STALE").length,
+        matchLevelSummary: meta?.matchLevelSummary || {},
+        projectOrNeighborhoodCount: sameLevelCount(["PROJECT_EXACT", "NEIGHBORHOOD_EXACT", "NEIGHBORHOOD_RELAXED"]),
+        districtCount: sameLevelCount(["DISTRICT_ROOM_AREA", "DISTRICT_GENERAL"]),
+    };
 }
 
 function sourceMetaForProvider(sourceMeta, providerName) {
@@ -661,72 +701,47 @@ export const autofillExternalData = async (req, res) => {
     }
 
     let bundle = null;
+    let comparableSelection = null;
+    let ingestionJob = null;
     if (remaxCriteria.city && remaxCriteria.district) {
         try {
-            bundle = await fetchComparableBundle(remaxCriteria, {
-                parcelLookup,
-                subjectPoint: parcelLookup?.center || null,
+            comparableSelection = await selectComparablesForReport({
+                city: remaxCriteria.city,
+                district: remaxCriteria.district,
+                neighborhood: remaxCriteria.neighborhood,
+                compoundName: cleanString(body.compoundName ?? body.projectName ?? body.siteName ?? ""),
+                propertyType: remaxCriteria.propertyType,
+                roomText: subjectRoomText || remaxCriteria.roomText || cleanString(body.roomText || ""),
                 subjectArea,
-                subjectRoomText,
+                reportType: remaxCriteria.reportType,
+            });
+            bundle = buildComparableBundleFromDbSelection(comparableSelection, {
+                subjectArea,
             });
 
             if (Array.isArray(bundle?.warnings) && bundle.warnings.length) {
                 warnings.push(...bundle.warnings);
             }
-        } catch (error) {
-            warnings.push(String(error.message || error));
-        }
-    }
 
-    if (Array.isArray(bundle?.comparables) && bundle.comparables.length > 0) {
-        try {
-            const imageEnrichment = await enrichComparableImages(bundle.comparables, {
-                subjectLocation: {
+            ingestionJob = await createIngestionJobIfComparablePoolLow(
+                {
                     city: remaxCriteria.city,
                     district: remaxCriteria.district,
                     neighborhood: remaxCriteria.neighborhood,
-                    reportType: remaxCriteria.reportType,
+                    compoundName: cleanString(body.compoundName ?? body.projectName ?? body.siteName ?? ""),
                     propertyType: remaxCriteria.propertyType,
-                    address: location.addressText,
+                    roomText: subjectRoomText || remaxCriteria.roomText || cleanString(body.roomText || ""),
+                    subjectArea,
+                    reportType: remaxCriteria.reportType,
                 },
-                baseUrl: publicBaseUrl(req),
-            });
-
-            bundle = {
-                ...bundle,
-                comparables: imageEnrichment.comparables,
-                sourceMeta: {
-                    ...(bundle.sourceMeta || {}),
-                    enrichment: imageEnrichment.sourceMeta,
-                },
-            };
+                comparableSelection
+            );
+            if (ingestionJob) {
+                warnings.push("Emsal havuzu düşük olduğu için arka plan ingestion job kaydı açıldı; rapor mevcut DB emsalleriyle üretildi.");
+            }
         } catch (error) {
-            warnings.push(`Emsal görselleri zenginleştirilemedi: ${String(error.message || error)}`);
+            warnings.push(String(error.message || error));
         }
-    }
-
-    if (Array.isArray(bundle?.comparables) && bundle.comparables.length > 0) {
-        const photoFilter = filterComparablesWithPhotos(bundle.comparables);
-        if (photoFilter.removedCount > 0) {
-            warnings.push(`${photoFilter.removedCount} fotoğrafsız emsal listeden çıkarıldı.`);
-        }
-        if (photoFilter.skipped) {
-            warnings.push(`Fotoğraf filtresi ${photoFilter.realPhotoCount} gerçek fotoğraflı emsal bıraktığı için emsal havuzunu daraltmamak adına uygulanmadı.`);
-        }
-
-        bundle = rebuildComparableBundleFromComparables(
-            {
-                ...bundle,
-                sourceMeta: {
-                    ...(bundle.sourceMeta || {}),
-                    photoRequired: !photoFilter.skipped,
-                    removedWithoutPhoto: photoFilter.removedCount,
-                    realPhotoCount: photoFilter.realPhotoCount,
-                },
-            },
-            photoFilter.comparables,
-            { subjectArea }
-        );
     }
 
     const hasComparables = Array.isArray(bundle?.comparables) && bundle.comparables.length > 0;
@@ -760,6 +775,21 @@ export const autofillExternalData = async (req, res) => {
                   comparables: bundle.comparables,
                   groups: bundle.groups,
                   comparableSource: bundle.sourceMeta,
+                  comparableSelection: comparableSelection
+                      ? {
+                            comparableStatus: comparableSelection.comparableStatus,
+                            comparableSource: comparableSelection.comparableSource,
+                            comparableCount: comparableSelection.comparableCount,
+                            candidateCount: comparableSelection.candidateCount,
+                            freshCount: comparableSelection.freshCount,
+                            staleCount: comparableSelection.staleCount,
+                            imageCount: comparableSelection.imageCount,
+                            bandSummary: comparableSelection.bandSummary,
+                            matchLevelSummary: comparableSelection.matchLevelSummary,
+                            cacheHit: comparableSelection.cacheHit,
+                        }
+                      : null,
+                  comparableIngestionJobId: ingestionJob?.id || null,
                   emlakjetSource: emlakjetSource || report.comparablesJson?.emlakjetSource || null,
                   remaxSource: remaxSource || report.comparablesJson?.remaxSource || null,
                   hepsiemlakSource: hepsiemlakSource || report.comparablesJson?.hepsiemlakSource || null,
@@ -850,6 +880,8 @@ export const autofillExternalData = async (req, res) => {
         landArea: inferredLandArea,
         pricingAnalysis: pricingUpdate || report.pricingAnalysis || null,
         sourceMeta: bundle?.sourceMeta || nextComparablesJson.comparableSource || null,
+        comparableSelection: nextComparablesJson.comparableSelection || null,
+        comparableIngestionJobId: ingestionJob?.id || null,
         mapMedia,
         warnings,
     });
@@ -895,6 +927,11 @@ export const aiPriceIndex = async (req, res) => {
     if (!areaForSqm) throw badRequest("AI analizi için m² bilgisi gerekli.", "netArea");
 
     const userComparables = comparablesFrom(body, report);
+    const comparableSelectionMeta =
+        body.comparablesJson?.comparableSelection ||
+        report.comparablesJson?.comparableSelection ||
+        report.comparablesJson?.comparableSource ||
+        {};
 
     const input = {
         client: {
@@ -939,6 +976,7 @@ export const aiPriceIndex = async (req, res) => {
             buildingCondition: buildingDetails.buildingCondition ?? null,
         },
         comparables: userComparables,
+        comparableSummary: buildComparableAiSummary(userComparables, comparableSelectionMeta),
         valuationType,
     };
 

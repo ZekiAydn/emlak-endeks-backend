@@ -33,6 +33,8 @@ const MAX_OUTPUT_COMPARABLES = 24;
 const DEFAULT_COMPARABLE_PROVIDERS = "SAHIBINDEN_HTML,HEPSIEMLAK_HTML,REMAX,EMLAKJET_HTML,SERP_SNIPPET";
 
 function providerEnabled(key) {
+    if (process.env.ENABLE_LIVE_SCRAPING === "false" && key !== "SERP_SNIPPET") return false;
+    if (key === "SAHIBINDEN_HTML" && process.env.ENABLE_SAHIBINDEN_HTML === "false") return false;
     if (key === "EMLAKJET_HTML") return process.env.COMPARABLE_EMLAKJET_HTML_ENABLED !== "false";
     if (key === "HEPSIEMLAK_HTML") return process.env.COMPARABLE_HEPSIEMLAK_HTML_ENABLED !== "false";
     if (key === "SAHIBINDEN_HTML") return process.env.COMPARABLE_SAHIBINDEN_HTML_ENABLED !== "false";

@@ -1,5 +1,4 @@
 import { paymentRequired } from "../utils/errors.js";
-import { isPhoneVerificationConfigured } from "./phoneVerification.js";
 
 const PLAN_DEFINITIONS = {
     FREE: {
@@ -83,18 +82,16 @@ async function getSubscriptionSummary(prisma, userId) {
         },
     });
 
-    const phoneVerified = user.role === "ADMIN" || Boolean(user.phone && user.phoneVerifiedAt);
-    const limit = user.subscriptionStatus === "ACTIVE" && phoneVerified ? plan.monthlyReportLimit : 0;
+    const limit = user.subscriptionStatus === "ACTIVE" ? plan.monthlyReportLimit : 0;
 
     return {
         status: user.subscriptionStatus || "ACTIVE",
         plan: plan.key,
         planName: plan.name,
         billingInterval: plan.billingInterval,
-        phoneVerified,
+        phoneVerified: true,
         phoneVerifiedAt: user.phoneVerifiedAt ? user.phoneVerifiedAt.toISOString() : null,
-        requiresPhoneVerification: !phoneVerified,
-        phoneVerificationEnabled: isPhoneVerificationConfigured(),
+        requiresPhoneVerification: false,
         monthlyReportLimit: limit,
         usedThisMonth,
         remainingThisMonth: Math.max(0, limit - usedThisMonth),
@@ -110,10 +107,6 @@ async function assertCanCreateReport(prisma, userId) {
 
     if (summary.status !== "ACTIVE") {
         throw paymentRequired("Aktif abonelik bulunamadı. Rapor oluşturmak için bir paket seçmelisiniz.");
-    }
-
-    if (summary.requiresPhoneVerification) {
-        throw paymentRequired("Telefon numaranız doğrulanmadan rapor hakkı kullanılamaz.");
     }
 
     if (summary.usedThisMonth >= summary.monthlyReportLimit) {

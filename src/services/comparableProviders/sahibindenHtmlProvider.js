@@ -251,7 +251,7 @@ async function fetchHtml(url, options = {}) {
         });
 
         if (!response.ok || isBlockedHtml(html)) {
-            if (process.env.SAHIBINDEN_BROWSER_FALLBACK_ENABLED !== "false") {
+            if (process.env.ENABLE_BROWSER_FALLBACK === "true" && process.env.SAHIBINDEN_BROWSER_FALLBACK_ENABLED !== "false") {
                 return fetchHtmlWithBrowser(url, options, result);
             }
 

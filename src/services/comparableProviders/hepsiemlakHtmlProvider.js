@@ -802,7 +802,7 @@ async function fetchHtml(url, options = {}) {
         };
 
         if (!response.ok) {
-            if (process.env.HEPSIEMLAK_BROWSER_FALLBACK_ENABLED !== "false") {
+            if (process.env.ENABLE_BROWSER_FALLBACK === "true" && process.env.HEPSIEMLAK_BROWSER_FALLBACK_ENABLED !== "false") {
                 return fetchHtmlWithBrowser(url, options, result);
             }
 
@@ -812,7 +812,7 @@ async function fetchHtml(url, options = {}) {
         }
 
         if (!html || html.length < 1000) {
-            if (process.env.HEPSIEMLAK_BROWSER_FALLBACK_ENABLED !== "false") {
+            if (process.env.ENABLE_BROWSER_FALLBACK === "true" && process.env.HEPSIEMLAK_BROWSER_FALLBACK_ENABLED !== "false") {
                 return fetchHtmlWithBrowser(url, options, result);
             }
 
