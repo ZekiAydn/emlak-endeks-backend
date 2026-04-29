@@ -64,6 +64,33 @@ function isStudioRoom(roomText) {
     return /stüdyo|studio|1\+0/i.test(String(roomText || ""));
 }
 
+function roomParts(roomText) {
+    const match = String(roomText || "").replace(/\s+/g, "").match(/^(\d+)\+(\d+)$/);
+    if (!match) return null;
+
+    const bedrooms = Number(match[1]);
+    const livingRooms = Number(match[2]);
+    if (!Number.isFinite(bedrooms) || !Number.isFinite(livingRooms)) return null;
+
+    return { bedrooms, livingRooms };
+}
+
+function roomCompatible(itemRoom, targetRoom, { allowUnknown = false } = {}) {
+    if (roomMatches(itemRoom, targetRoom)) return true;
+    if (!itemRoom) return allowUnknown;
+    if (isStudioRoom(itemRoom)) return false;
+
+    const current = roomParts(itemRoom);
+    const target = roomParts(targetRoom);
+    if (!current || !target) return allowUnknown;
+
+    if (target.bedrooms >= 2 && current.bedrooms <= 1) return false;
+    if (Math.abs(current.bedrooms - target.bedrooms) > 1) return false;
+    if (current.livingRooms !== target.livingRooms) return false;
+
+    return true;
+}
+
 function isLikelyTestListing(item) {
     const text = `${item?.title || ""} ${item?.address || ""}`.toLocaleLowerCase("tr-TR");
     return text.includes("test") || text.includes("dikkate almayin") || text.includes("dikkate almayın");
@@ -225,9 +252,14 @@ function selectValuationComparables(items = [], options = {}) {
         const exactRoom = pool.filter((item) => roomMatches(item?.roomText, targetRoom));
         if (exactRoom.length >= MIN_VALUATION_SAMPLE) {
             pool = exactRoom;
-        } else if (/^[2-9]\+/.test(targetRoom)) {
-            const withoutStudios = pool.filter((item) => !isStudioRoom(item?.roomText));
-            if (withoutStudios.length >= MIN_VALUATION_SAMPLE) pool = withoutStudios;
+        } else {
+            const compatibleRoom = pool.filter((item) => roomCompatible(item?.roomText, targetRoom, { allowUnknown: false }));
+            if (compatibleRoom.length >= MIN_VALUATION_SAMPLE) {
+                pool = compatibleRoom;
+            } else if (/^[2-9]\+/.test(targetRoom)) {
+                const withoutStudios = pool.filter((item) => !isStudioRoom(item?.roomText));
+                if (withoutStudios.length >= MIN_VALUATION_SAMPLE) pool = withoutStudios;
+            }
         }
     }
 
@@ -247,6 +279,11 @@ function selectPortfolioGroups(items = [], options = {}) {
     if (photoReady.length >= TARGET_TOTAL) pool = photoReady;
 
     pool = trimOutliers(pool).sort((a, b) => (comparablePrice(a) || 0) - (comparablePrice(b) || 0));
+
+    if (options.subjectRoomText) {
+        const roomCompatiblePool = pool.filter((item) => roomCompatible(item?.roomText, options.subjectRoomText, { allowUnknown: true }));
+        if (roomCompatiblePool.length >= MIN_VALUATION_SAMPLE) pool = roomCompatiblePool;
+    }
 
     const third = Math.max(TARGET_GROUP_SIZE, Math.ceil(pool.length / 3));
     const lowBand = pool.slice(0, third);

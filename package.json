@@ -11,7 +11,8 @@
     "start": "node src/index.js",
     "postinstall": "npx playwright install --with-deps chromium",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate deploy"
+    "prisma:migrate": "prisma migrate deploy",
+    "data:import-locations": "node scripts/import-open-location-data.js"
   },
   "repository": {
     "type": "git",

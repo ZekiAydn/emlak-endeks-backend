@@ -18,6 +18,7 @@ import { enrichComparableImages } from "../services/comparableImageEnrichment.js
 import { saveComparableListings } from "../services/comparableCache.js";
 import { propertyCategory } from "../services/propertyCategory.js";
 import { applyValuationPolicy } from "../services/valuationPolicy.js";
+import { quantile, selectValuationComparables } from "../services/comparablePolicy.js";
 
 
 const mediaSelect = {
@@ -191,14 +192,55 @@ function normalizeComparable(c) {
     };
 }
 
+function comparableIdentity(c = {}) {
+    return [c.externalId, c.sourceUrl, c.id, c.listingUrl]
+        .map((value) => cleanString(value))
+        .find(Boolean) || null;
+}
+
+function idSetFrom(...values) {
+    const out = new Set();
+    values.flat().forEach((value) => {
+        const id = cleanString(value);
+        if (id) out.add(id);
+    });
+    return out;
+}
+
 function comparablesFrom(body, report) {
+    const explicitBodyComparables = Array.isArray(body.comparables);
+    const explicitJsonComparables = Array.isArray(body.comparablesJson?.comparables);
     const raw =
-        (Array.isArray(body.comparables) ? body.comparables : null) ??
-        (Array.isArray(body.comparablesJson?.comparables) ? body.comparablesJson.comparables : null) ??
+        (explicitBodyComparables ? body.comparables : null) ??
+        (explicitJsonComparables ? body.comparablesJson.comparables : null) ??
         (Array.isArray(report?.comparablesJson?.comparables) ? report.comparablesJson.comparables : null) ??
         [];
 
-    return raw.map(normalizeComparable);
+    const excludedIds = idSetFrom(
+        body.excludedComparableIds,
+        body.deletedComparableIds,
+        body.removedComparableIds,
+        body.comparablesJson?.excludedComparableIds,
+        body.comparablesJson?.deletedComparableIds,
+        body.comparablesJson?.removedComparableIds
+    );
+    const currentIds = idSetFrom(
+        body.activeComparableIds,
+        body.currentComparableIds,
+        body.selectedComparableIds,
+        body.comparablesJson?.activeComparableIds,
+        body.comparablesJson?.currentComparableIds,
+        body.comparablesJson?.selectedComparableIds
+    );
+
+    return raw
+        .map(normalizeComparable)
+        .filter((item) => {
+            const id = comparableIdentity(item);
+            if (id && excludedIds.has(id)) return false;
+            if (!explicitBodyComparables && !explicitJsonComparables && currentIds.size && (!id || !currentIds.has(id))) return false;
+            return true;
+        });
 }
 
 function mergeComparablesJson(existingValue, incomingValue) {
@@ -580,6 +622,7 @@ async function updateComparableDataForReport(req, report, body = {}) {
     const policyPriceBand = hasComparables && bundle?.priceBand
         ? applyValuationPolicy(bundle.priceBand, context.subjectArea, context.comparableCriteria.valuationType, {
               buildingDetails: context.buildingDetails,
+              propertyDetails: context.propertyDetails,
               propertyCategory: context.comparableCategory,
           })
         : null;
@@ -1177,6 +1220,7 @@ export const autofillExternalData = async (req, res) => {
     const policyPriceBand = hasComparables && bundle?.priceBand
         ? applyValuationPolicy(bundle.priceBand, subjectArea, remaxCriteria.valuationType, {
               buildingDetails,
+              propertyDetails,
               propertyCategory: comparableCategory,
           })
         : null;
@@ -1275,7 +1319,20 @@ export const aiPriceIndex = async (req, res) => {
     if (!addressText) throw badRequest("AI analizi için taşınmaz adresi gerekli.", "addressText");
     if (!areaForSqm) throw badRequest("AI analizi için m² bilgisi gerekli.", "netArea");
 
-    const userComparables = comparablesFrom(body, report);
+    const comparableCategory = propertyCategory({
+        reportType: body.reportType ?? location.reportType ?? report.reportType,
+        propertyType: buildingDetails.propertyType,
+    });
+    const subjectRoomText =
+        comparableCategory === "residential" && propertyDetails.roomCount !== undefined && propertyDetails.roomCount !== null
+            ? `${propertyDetails.roomCount}${propertyDetails.salonCount !== undefined && propertyDetails.salonCount !== null ? `+${propertyDetails.salonCount}` : ""}`
+            : null;
+    const incomingComparables = comparablesFrom(body, report);
+    const userComparables = selectValuationComparables(incomingComparables, {
+        subjectArea: areaForSqm,
+        subjectRoomText,
+        propertyCategory: comparableCategory,
+    });
 
     const input = {
         client: {
@@ -1342,13 +1399,9 @@ export const aiPriceIndex = async (req, res) => {
     const round1000 = (x) => Math.round(x / 1000) * 1000;
 
     if (hasComparableCalibration) {
-        const minC = Math.min(...compPrices);
-        const maxC = Math.max(...compPrices);
-        const avgC = compPrices.reduce((a, b) => a + b, 0) / compPrices.length;
-
-        normalized.minPrice = round1000(minC * 0.95);
-        normalized.maxPrice = round1000(maxC * 1.05);
-        normalized.avgPrice = round1000(avgC);
+        normalized.minPrice = round1000(quantile(compPrices, 0.2) * 0.97);
+        normalized.avgPrice = round1000(quantile(compPrices, 0.5));
+        normalized.maxPrice = round1000(quantile(compPrices, 0.8) * 1.03);
 
         if (normalized.minPrice > normalized.avgPrice) normalized.avgPrice = normalized.minPrice;
         if (normalized.avgPrice > normalized.maxPrice) normalized.maxPrice = normalized.avgPrice;
@@ -1363,6 +1416,9 @@ export const aiPriceIndex = async (req, res) => {
         normalized.missingData = [];
         normalized.assumptions = Array.isArray(normalized.assumptions) ? normalized.assumptions : [];
         normalized.assumptions.unshift("Fiyat aralığı kullanıcı tarafından girilen emsallere göre kalibre edilmiştir.");
+        if (incomingComparables.length > userComparables.length) {
+            normalized.assumptions.unshift(`${incomingComparables.length - userComparables.length} uyumsuz veya silinmiş emsal AI kalibrasyonuna dahil edilmemiştir.`);
+        }
         normalized.confidence = normalized.confidence ?? null;
         normalized.confidence = Number.isFinite(Number(normalized.confidence))
             ? Math.max(Number(normalized.confidence), 0.6)
@@ -1407,10 +1463,8 @@ export const aiPriceIndex = async (req, res) => {
         valuationType,
         {
             buildingDetails,
-            propertyCategory: propertyCategory({
-                reportType: body.reportType ?? location.reportType ?? report.reportType,
-                propertyType: buildingDetails.propertyType,
-            }),
+            propertyDetails,
+            propertyCategory: comparableCategory,
             skipAmenityPremium: !hasComparableCalibration,
         }
     );

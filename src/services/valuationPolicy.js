@@ -59,6 +59,61 @@ function premiumFeatureAdjustment(buildingDetails = {}, options = {}) {
     };
 }
 
+function conditionAdjustment(buildingDetails = {}, propertyDetails = {}, options = {}) {
+    const isResidential = !options.propertyCategory || options.propertyCategory === "residential";
+    if (!isResidential) {
+        return {
+            multiplier: 1,
+            percent: 0,
+            factors: [],
+            note: null,
+        };
+    }
+
+    const age = toNumber(buildingDetails.buildingAge);
+    const floor = toNumber(propertyDetails.floor);
+    const hasElevator = buildingDetails.hasElevator === true;
+    const noElevator = buildingDetails.hasElevator === false;
+    const factors = [];
+    let percent = 0;
+
+    if (age !== null) {
+        if (age >= 30) percent += 0.5;
+        else if (age >= 25) percent += 0.42;
+        else if (age >= 20) percent += 0.35;
+        else if (age >= 15) percent += 0.28;
+        else if (age >= 10) percent += 0.2;
+        else if (age >= 5) percent += 0.1;
+        else if (age >= 3) percent += 0.04;
+
+        if (percent > 0) factors.push(`${Math.round(age)} yaş bina`);
+    }
+
+    if (noElevator) {
+        percent += 0.06;
+        factors.push("asansör yok");
+
+        if (floor !== null && floor >= 3) {
+            percent += 0.07;
+            factors.push(`${Math.round(floor)}. kat asansörsüz kullanım`);
+        }
+    } else if (hasElevator && age !== null && age >= 10) {
+        percent = Math.max(0, percent - 0.03);
+        factors.push("asansör mevcut");
+    }
+
+    percent = Math.min(0.58, Math.max(0, percent));
+
+    return {
+        multiplier: percent > 0 ? 1 - percent : 1,
+        percent,
+        factors,
+        note: percent > 0
+            ? `${factors.join(", ")} nedeniyle fiyat bandına yaklaşık %${Math.round(percent * 100)} yaş/asansör düzeltmesi uygulanmıştır.`
+            : null,
+    };
+}
+
 function saleStrategy() {
     return {
         low: {
@@ -131,6 +186,7 @@ function applyValuationPolicy(input = {}, areaHint = null, valuationType = "SALE
     const premium = options.skipAmenityPremium
         ? { multiplier: 1, percent: 0, features: [], note: null }
         : premiumFeatureAdjustment(options.buildingDetails || {}, options);
+    const condition = conditionAdjustment(options.buildingDetails || {}, options.propertyDetails || {}, options);
     const area = toNumber(areaHint);
     const sourceMinPrice = toNumber(input.minPrice);
     const sourceExpectedPrice = toNumber(input.expectedPrice ?? input.avgPrice);
@@ -174,6 +230,12 @@ function applyValuationPolicy(input = {}, areaHint = null, valuationType = "SALE
         maxPrice = roundPrice(maxPrice * premium.multiplier);
     }
 
+    if (condition.percent > 0) {
+        minPrice = roundPrice(minPrice * condition.multiplier);
+        expectedPrice = roundPrice(expectedPrice * condition.multiplier);
+        maxPrice = roundPrice(maxPrice * condition.multiplier);
+    }
+
     const next = {
         ...input,
         minPrice,
@@ -189,6 +251,14 @@ function applyValuationPolicy(input = {}, areaHint = null, valuationType = "SALE
                       multiplier: premium.multiplier,
                       features: premium.features,
                       note: premium.note,
+                  }
+                : null,
+            conditionAdjustment: condition.percent > 0
+                ? {
+                      percent: Math.round(condition.percent * 100),
+                      multiplier: condition.multiplier,
+                      factors: condition.factors,
+                      note: condition.note,
                   }
                 : null,
         },
@@ -212,7 +282,7 @@ function applyValuationPolicy(input = {}, areaHint = null, valuationType = "SALE
         }
     }
 
-    const noteText = [next.valuationPolicy.note, premium.note].filter(Boolean).join(" ");
+    const noteText = [next.valuationPolicy.note, premium.note, condition.note].filter(Boolean).join(" ");
     const existingNote = String(input.note || "").trim();
     next.note = existingNote ? `${existingNote}\n\n${noteText}` : noteText;
 

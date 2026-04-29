@@ -328,15 +328,15 @@ model ComparableListing {
   currency   String @default("TRY")
   pricePerM2 Float?
 
-  city         String?
-  district     String?
-  neighborhood String?
-  compoundName String?
-  addressText  String?
-  reportType   String?
+  city          String?
+  district      String?
+  neighborhood  String?
+  compoundName  String?
+  addressText   String?
+  reportType    String?
   valuationType String?
-  latitude     Float?
-  longitude    Float?
+  latitude      Float?
+  longitude     Float?
 
   grossM2     Float?
   netM2       Float?
@@ -413,6 +413,42 @@ model ComparableListing {
   @@index([lastSeenAt])
   @@index([expiresAt])
   @@index([listingUrl])
+}
+
+model OpenLocationStat {
+  id                     String   @id @default(cuid())
+  source                 String
+  sourceDataset          String
+  sourceReliability      String?
+  sourceKey              String
+  sourceUrl              String?
+  declaredSource         String?
+  locationLevel          String
+  country                String   @default("TR")
+  city                   String?
+  district               String?
+  neighborhood           String?
+  normalizedCity         String?
+  normalizedDistrict     String?
+  normalizedNeighborhood String?
+  year                   Int      @default(0)
+  metricKey              String
+  metricLabel            String?
+  metricValue            Float?
+  metricText             String?
+  unit                   String?
+  rawJson                Json?
+  fetchedAt              DateTime @default(now()) @db.Timestamptz(6)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@unique([source, sourceDataset, sourceKey, metricKey, year])
+  @@index([source])
+  @@index([sourceDataset])
+  @@index([locationLevel])
+  @@index([normalizedCity, normalizedDistrict, normalizedNeighborhood])
+  @@index([metricKey])
+  @@index([year])
 }
 
 enum ComparableSourceStatus {

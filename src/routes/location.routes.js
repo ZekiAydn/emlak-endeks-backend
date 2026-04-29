@@ -10,5 +10,7 @@ router.get("/locations/neighborhoods", authRequired, c.listNeighborhoods);
 router.get("/locations/tkgm/cities", authRequired, c.listTkgmCities);
 router.get("/locations/tkgm/districts", authRequired, c.listTkgmDistricts);
 router.get("/locations/tkgm/neighborhoods", authRequired, c.listTkgmNeighborhoods);
+router.get("/locations/open-data/sources", authRequired, c.listOpenLocationSources);
+router.get("/locations/open-data/profile", authRequired, c.openLocationProfile);
 
 export default router;

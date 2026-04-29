@@ -8,6 +8,10 @@ import {
     fetchDistricts as fetchTkgmDistricts,
     fetchNeighborhoods as fetchTkgmNeighborhoods,
 } from "../services/tkgmParcel.js";
+import {
+    FREE_LOCATION_DATA_SOURCES,
+    getOpenLocationProfile,
+} from "../services/openLocationData.js";
 
 export async function listCities(_req, res) {
     res.json(await fetchAddressCities());
@@ -31,4 +35,12 @@ export async function listTkgmDistricts(req, res) {
 
 export async function listTkgmNeighborhoods(req, res) {
     res.json(await fetchTkgmNeighborhoods(req.query.districtId));
+}
+
+export async function listOpenLocationSources(_req, res) {
+    res.json(FREE_LOCATION_DATA_SOURCES);
+}
+
+export async function openLocationProfile(req, res) {
+    res.json(await getOpenLocationProfile(req.query || {}));
 }

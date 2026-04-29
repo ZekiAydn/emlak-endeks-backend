@@ -1,6 +1,6 @@
 import { searchSerpApiOrganic } from "./hepsiemlakUrlResolver.js";
 import crypto from "node:crypto";
-import { comparableSearchText, propertyCategory, valuationType } from "../propertyCategory.js";
+import { comparableSearchText, normalizePropertyText, propertyCategory, valuationType } from "../propertyCategory.js";
 import { TARGET_TOTAL } from "../comparablePolicy.js";
 
 const ALLOWED_HOSTS = [
@@ -17,6 +17,10 @@ const SERP_MAX_PAGES = 2;
 
 function cleanText(value) {
     return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function compactText(value) {
+    return normalizePropertyText(value).replace(/\s+/g, "");
 }
 
 function toNumber(value) {
@@ -75,16 +79,95 @@ function isAllowedListingUrl(url, criteria = {}) {
     }
 }
 
+function isLikelyAggregateUrl(url) {
+    try {
+        const parsed = new URL(url);
+        const host = parsed.hostname.replace(/^www\./, "");
+        const path = decodeURIComponent(parsed.pathname).toLocaleLowerCase("tr-TR");
+
+        if (host.includes("emlakjet")) return !path.includes("/ilan/");
+        if (host.includes("remax")) return !path.includes("/portfoy/");
+
+        if (host.includes("sahibinden")) {
+            if (/\/(?:satilik|satılık|kiralik|kiralık)-/.test(path)) return true;
+            if (/\/emlak-(?:konut|arsa|isyeri|işyeri)/.test(path)) return true;
+            return !/\d{7,}/.test(path);
+        }
+
+        return false;
+    } catch {
+        return true;
+    }
+}
+
+function isLikelyAggregateText(title, snippet) {
+    const text = normalizePropertyText(`${title} ${snippet}`);
+    return (
+        /\bfiyatlari\b/.test(text) ||
+        /\bilanlari\b/.test(text) ||
+        /\ben ucuz\b/.test(text) ||
+        /\bbaslayan\b/.test(text) ||
+        /\barasindan\b/.test(text) ||
+        /\badet\b.*\bilan\b/.test(text) ||
+        /\bfavori ikonu\b/.test(text)
+    );
+}
+
+function matchesTargetNeighborhood(link, title, snippet, criteria = {}) {
+    const target = normalizePropertyText(criteria.neighborhood)
+        .replace(/\bmahallesi\b/g, "")
+        .replace(/\bmahalle\b/g, "")
+        .replace(/\bmah\b/g, "")
+        .replace(/\bmh\b/g, "")
+        .trim();
+    if (!target) return true;
+
+    const haystack = normalizePropertyText(`${link} ${title} ${snippet}`)
+        .replace(/\bmahallesi\b/g, "")
+        .replace(/\bmahalle\b/g, "")
+        .replace(/\bmah\b/g, "")
+        .replace(/\bmh\b/g, "");
+
+    return haystack.includes(target) || compactText(haystack).includes(compactText(target));
+}
+
+function roomParts(roomText) {
+    const match = String(roomText || "").replace(/\s+/g, "").match(/^(\d+)\+(\d+)$/);
+    if (!match) return null;
+    return { bedrooms: Number(match[1]), livingRooms: Number(match[2]) };
+}
+
+function roomCompatible(itemRoom, targetRoom) {
+    const currentText = String(itemRoom || "").replace(/\s+/g, "").toLocaleLowerCase("tr-TR");
+    const targetText = String(targetRoom || "").replace(/\s+/g, "").toLocaleLowerCase("tr-TR");
+    if (!targetText || !currentText) return true;
+    if (currentText === targetText) return true;
+    if (/stüdyo|studio|1\+0/.test(currentText)) return false;
+
+    const current = roomParts(currentText);
+    const target = roomParts(targetText);
+    if (!current || !target) return true;
+    if (target.bedrooms >= 2 && current.bedrooms <= 1) return false;
+    if (Math.abs(current.bedrooms - target.bedrooms) > 1) return false;
+    if (current.livingRooms !== target.livingRooms) return false;
+
+    return true;
+}
+
 function parsePrice(text) {
     const source = cleanText(text);
     const millionMatch = source.match(/(\d+(?:[.,]\d+)?)\s*(?:milyon|mn)\s*(?:tl|₺)?/i);
-    if (millionMatch) {
+    if (millionMatch && !/en ucuz|başlayan|baslayan/i.test(source.slice(Math.max(0, millionMatch.index - 30), millionMatch.index + millionMatch[0].length + 30))) {
         const value = Number(millionMatch[1].replace(",", "."));
         if (Number.isFinite(value)) return Math.round(value * 1_000_000);
     }
 
     const matches = [...source.matchAll(/(?:₺\s*)?(\d[\d.]*(?:,\d{2})?)\s*(?:tl|₺)/gi)];
     const values = matches
+        .filter((match) => {
+            const context = source.slice(Math.max(0, match.index - 35), match.index + match[0].length + 35);
+            return !/en ucuz|başlayan|baslayan|den başlayan|den baslayan|seçeneklerle|seceneklerle/i.test(context);
+        })
         .map((match) => Number(match[1].replace(/\./g, "").replace(",", ".")))
         .filter((value) => Number.isFinite(value) && value >= 250000);
 
@@ -115,7 +198,7 @@ function comparableUnitPrice(item) {
     return Math.round(price / area);
 }
 
-function normalizeSerpComparable(item, criteria, index) {
+function normalizeSerpComparable(item, criteria, index, options = {}) {
     const link = cleanText(item?.link || item?.redirect_link || "");
     if (!isAllowedListingUrl(link, criteria)) return null;
 
@@ -125,12 +208,17 @@ function normalizeSerpComparable(item, criteria, index) {
         item?.rich_snippet?.top?.extensions?.join(" "),
         item?.rich_snippet?.bottom?.extensions?.join(" "),
     ].filter(Boolean).join(" "));
+    if (isLikelyAggregateUrl(link) || isLikelyAggregateText(title, snippet)) return null;
+    if (!matchesTargetNeighborhood(link, title, snippet, criteria)) return null;
+
     const text = `${title} ${snippet}`;
     const price = parsePrice(text);
     if (!Number.isFinite(price) || price < 250000) return null;
 
     const grossArea = parseArea(text);
     const roomText = parseRoomText(text);
+    if (!roomCompatible(roomText, options.subjectRoomText)) return null;
+
     const pricePerSqm = grossArea ? Math.round(price / grossArea) : null;
 
     return {
@@ -172,11 +260,14 @@ function uniqueComparables(items) {
     return result;
 }
 
-function buildQueries(criteria = {}) {
+function buildQueries(criteria = {}, options = {}) {
     const location = [criteria.city, criteria.district, criteria.neighborhood].filter(Boolean).join(" ");
     const transaction = valuationType(criteria) === "rental" ? "kiralık" : "satılık";
     const type = propertySearchText(criteria);
-    const base = `${location} ${transaction} ${type}`.trim();
+    const room = propertyCategory(criteria) === "residential" && options.subjectRoomText
+        ? String(options.subjectRoomText).trim()
+        : "";
+    const base = `${location} ${transaction} ${room} ${type}`.trim();
     const category = propertyCategory(criteria);
     const categoryTerms =
         category === "land"
@@ -219,7 +310,7 @@ function normalizedCandidateComparables(organicItems, criteria = {}, options = {
     const category = propertyCategory(criteria);
     const unique = uniqueComparables(
         organicItems
-            .map((item, index) => normalizeSerpComparable(item, criteria, index))
+            .map((item, index) => normalizeSerpComparable(item, criteria, index, options))
             .filter(Boolean)
     );
 
@@ -443,7 +534,7 @@ async function fetchSerpSnippetComparableBundle(criteria = {}, options = {}) {
 
     const maxQueries = Math.max(1, Math.min(Number(5), 5));
     const maxResults = SERP_PAGE_SIZE;
-    const queries = buildQueries(criteria).slice(0, maxQueries);
+    const queries = buildQueries(criteria, options).slice(0, maxQueries);
     const warnings = [];
     const organicItems = [];
     const existingCount = Number(options.existingComparableCount || 0);
