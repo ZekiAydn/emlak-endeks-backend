@@ -315,6 +315,10 @@ function googleImageSearchConfig() {
     };
 }
 
+function serpApiKey() {
+    return process.env.SERPAPI_KEY || "";
+}
+
 function locationForStreetView(item, subjectLocation = {}) {
     if (item?.latitude && item?.longitude) return `${item.latitude},${item.longitude}`;
 
@@ -470,6 +474,84 @@ async function collectGoogleImagePool(comparables, subjectLocation) {
     return uniqueImageCandidates(pool);
 }
 
+async function collectSerpApiImagePool(comparables, subjectLocation) {
+    const apiKey = serpApiKey();
+    if (!apiKey) return [];
+
+    const locationText = subjectSearchText(subjectLocation);
+    const propertyText = comparableSearchText(subjectLocation) || "ilan";
+    const firstTitles = comparables
+        .slice(0, 5)
+        .map((item) => item?.title)
+        .filter(Boolean);
+    const queries = uniqueTexts([
+        `${locationText} satılık ${propertyText} ilan fotoğraf sahibinden hepsiemlak emlakjet`,
+        `${locationText} ${propertyText} emlak ilan görselleri`,
+        ...firstTitles.map((title) => `${title} ilan fotoğraf`),
+    ]).slice(0, 4);
+
+    console.log("[IMAGE_ENRICHMENT] serpapi image search start", {
+        queries: queries.length,
+        locationText,
+        propertyText,
+    });
+
+    const settled = await Promise.allSettled(
+        queries.map(async (query) => {
+            const params = new URLSearchParams({
+                engine: "google_images",
+                q: query,
+                hl: "tr",
+                gl: "tr",
+                safe: "active",
+                api_key: apiKey,
+            });
+
+            const response = await fetch(`https://serpapi.com/search.json?${params.toString()}`, {
+                headers: { accept: "application/json" },
+                cache: "no-store",
+            });
+            const data = await response.json().catch(() => null);
+            if (!response.ok) {
+                throw new Error(`SerpAPI görsel araması cevap vermedi (${response.status}): ${JSON.stringify(data).slice(0, 200)}`);
+            }
+
+            return {
+                query,
+                items: Array.isArray(data?.images_results) ? data.images_results : [],
+            };
+        })
+    );
+
+    const pool = [];
+    settled.forEach((result, index) => {
+        const query = queries[index];
+        if (result.status === "rejected") {
+            console.warn("[IMAGE_ENRICHMENT] serpapi image search failed", {
+                query,
+                message: String(result.reason?.message || result.reason),
+            });
+            return;
+        }
+
+        console.log("[IMAGE_ENRICHMENT] serpapi image search success", {
+            query: result.value.query,
+            count: result.value.items.length,
+        });
+
+        for (const item of result.value.items) {
+            pool.push(normalizeImageCandidate(item?.original, "https://www.google.com"));
+            pool.push(normalizeImageCandidate(item?.thumbnail, "https://www.google.com"));
+        }
+    });
+
+    const unique = uniqueImageCandidates(pool);
+    console.log("[IMAGE_ENRICHMENT] serpapi image pool", {
+        count: unique.length,
+    });
+    return unique;
+}
+
 function buildMockImageUrl(item, index, baseUrl) {
     if (!baseUrl) return null;
 
@@ -578,10 +660,12 @@ export async function enrichComparableImages(comparables = [], { subjectLocation
                 recordCount: 0,
                 hasStreetViewFallback: !!googleMapsKey(),
                 hasGoogleImageFallback: !!(googleImageSearchConfig().key && googleImageSearchConfig().cx),
+                hasSerpApiImageFallback: !!serpApiKey(),
                 realImageCount: 0,
                 mockImageCount: 0,
                 assignedPoolImageCount: 0,
                 pooledImageCount: 0,
+                serpApiImagePoolCount: 0,
                 areaCount: 0,
                 missingAreaCount: 0,
                 enrichedAreaCount: 0,
@@ -592,8 +676,11 @@ export async function enrichComparableImages(comparables = [], { subjectLocation
     }
 
     const enrichedResults = await Promise.all(rows.map((item) => enrichComparable(item || {}, subjectLocation, baseUrl)));
-    const googleImagePool = await collectGoogleImagePool(rows, subjectLocation);
-    const filled = fillMissingImages(enrichedResults, googleImagePool, baseUrl);
+    const [googleImagePool, serpApiImagePool] = await Promise.all([
+        collectGoogleImagePool(rows, subjectLocation),
+        collectSerpApiImagePool(rows, subjectLocation),
+    ]);
+    const filled = fillMissingImages(enrichedResults, [...googleImagePool, ...serpApiImagePool], baseUrl);
     const areaCoverage = buildAreaCoverage(rows, filled.rows);
 
     return {
@@ -603,10 +690,12 @@ export async function enrichComparableImages(comparables = [], { subjectLocation
             recordCount: filled.rows.length,
             hasStreetViewFallback: !!googleMapsKey(),
             hasGoogleImageFallback: !!(googleImageSearchConfig().key && googleImageSearchConfig().cx),
+            hasSerpApiImageFallback: !!serpApiKey(),
             realImageCount: filled.realImageCount,
             mockImageCount: filled.mockImageCount,
             assignedPoolImageCount: filled.assignedPoolImageCount,
             pooledImageCount: filled.pooledImageCount,
+            serpApiImagePoolCount: serpApiImagePool.length,
             areaCount: areaCoverage.areaCount,
             missingAreaCount: areaCoverage.missingAreaCount,
             enrichedAreaCount: areaCoverage.enrichedAreaCount,

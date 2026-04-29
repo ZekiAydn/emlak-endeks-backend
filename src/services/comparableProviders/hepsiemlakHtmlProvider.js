@@ -884,7 +884,15 @@ async function fetchFirstWorkingCandidate(criteria, sortOptions = {}, options = 
 
             errors.push(`${url}: emsal bulunamadı`);
         } catch (error) {
-            errors.push(`${url}: ${String(error.message || error)}`);
+            const message = String(error.message || error);
+            errors.push(`${url}: ${message}`);
+            if (message.includes("cevap vermedi (403)") || message.includes("Just a moment")) {
+                console.warn("[HEPSIEMLAK] bot protection detected, stopping candidate scan", {
+                    url,
+                    message: message.slice(0, 220),
+                });
+                break;
+            }
         }
     }
 
