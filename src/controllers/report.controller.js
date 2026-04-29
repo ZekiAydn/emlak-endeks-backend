@@ -15,6 +15,7 @@ import {
 import { badRequest, notFound } from "../utils/errors.js";
 import { fetchComparableBundle } from "../services/comparableProviders/index.js";
 import { enrichComparableImages } from "../services/comparableImageEnrichment.js";
+import { saveComparableListings } from "../services/comparableCache.js";
 import { propertyCategory } from "../services/propertyCategory.js";
 import { applyValuationPolicy } from "../services/valuationPolicy.js";
 
@@ -500,6 +501,29 @@ async function updateComparableDataForReport(req, report, body = {}) {
     }
 
     const hasComparables = Array.isArray(bundle?.comparables) && bundle.comparables.length > 0;
+    if (hasComparables) {
+        try {
+            const cacheSave = await saveComparableListings(bundle.comparables, context.comparableCriteria, {
+                subjectArea: context.subjectArea,
+                subjectRoomText: context.subjectRoomText,
+                sourceMeta: bundle.sourceMeta || null,
+            });
+
+            bundle = {
+                ...bundle,
+                sourceMeta: {
+                    ...(bundle.sourceMeta || {}),
+                    cacheSave,
+                },
+            };
+        } catch (error) {
+            console.warn("[COMPARABLE_DATA] cache save failed", {
+                reportId,
+                message: String(error.message || error),
+            });
+        }
+    }
+
     const existingComparables = Array.isArray(report.comparablesJson?.comparables)
         ? report.comparablesJson.comparables
         : [];
@@ -540,7 +564,10 @@ async function updateComparableDataForReport(req, report, body = {}) {
     };
 
     const policyPriceBand = hasComparables && bundle?.priceBand
-        ? applyValuationPolicy(bundle.priceBand, context.subjectArea, context.comparableCriteria.valuationType)
+        ? applyValuationPolicy(bundle.priceBand, context.subjectArea, context.comparableCriteria.valuationType, {
+              buildingDetails: context.buildingDetails,
+              propertyCategory: context.comparableCategory,
+          })
         : null;
     const inferredLandArea =
         context.comparableCategory === "land" && context.subjectArea && context.subjectArea > 0
@@ -1041,6 +1068,28 @@ export const autofillExternalData = async (req, res) => {
     }
 
     const hasComparables = Array.isArray(bundle?.comparables) && bundle.comparables.length > 0;
+    if (hasComparables) {
+        try {
+            const cacheSave = await saveComparableListings(bundle.comparables, remaxCriteria, {
+                subjectArea,
+                subjectRoomText,
+                sourceMeta: bundle.sourceMeta || null,
+            });
+
+            bundle = {
+                ...bundle,
+                sourceMeta: {
+                    ...(bundle.sourceMeta || {}),
+                    cacheSave,
+                },
+            };
+        } catch (error) {
+            console.warn("[EXTERNAL_DATA] cache save failed", {
+                reportId,
+                message: String(error.message || error),
+            });
+        }
+    }
 
     if (!hasComparables && !parcelLookup) {
         throw badRequest(
@@ -1107,7 +1156,10 @@ export const autofillExternalData = async (req, res) => {
     }
 
     const policyPriceBand = hasComparables && bundle?.priceBand
-        ? applyValuationPolicy(bundle.priceBand, subjectArea, remaxCriteria.valuationType)
+        ? applyValuationPolicy(bundle.priceBand, subjectArea, remaxCriteria.valuationType, {
+              buildingDetails,
+              propertyCategory: comparableCategory,
+          })
         : null;
     const inferredLandArea = comparableCategory === "land" && subjectArea && subjectArea > 0 ? subjectArea : null;
 
@@ -1237,6 +1289,7 @@ export const aiPriceIndex = async (req, res) => {
             openParking: buildingDetails.openParking ?? null,
             closedParking: buildingDetails.closedParking ?? null,
             hasSportsArea: buildingDetails.hasSportsArea ?? null,
+            hasFitnessCenter: buildingDetails.hasFitnessCenter ?? buildingDetails.hasSportsArea ?? null,
             hasCaretaker: buildingDetails.hasCaretaker ?? null,
             hasChildrenPark: buildingDetails.hasChildrenPark ?? null,
             security: buildingDetails.security ?? null,
@@ -1266,9 +1319,10 @@ export const aiPriceIndex = async (req, res) => {
 
     let normalized = normalizePriceIndex(json, areaForSqm);
     const compPrices = userComparables.map((c) => Number(c.price)).filter(Number.isFinite);
+    const hasComparableCalibration = compPrices.length >= 2;
     const round1000 = (x) => Math.round(x / 1000) * 1000;
 
-    if (compPrices.length >= 2) {
+    if (hasComparableCalibration) {
         const minC = Math.min(...compPrices);
         const maxC = Math.max(...compPrices);
         const avgC = compPrices.reduce((a, b) => a + b, 0) / compPrices.length;
@@ -1331,7 +1385,15 @@ export const aiPriceIndex = async (req, res) => {
             expectedPricePerSqm: normalized.avgPricePerSqm,
         },
         areaForSqm,
-        valuationType
+        valuationType,
+        {
+            buildingDetails,
+            propertyCategory: propertyCategory({
+                reportType: body.reportType ?? location.reportType ?? report.reportType,
+                propertyType: buildingDetails.propertyType,
+            }),
+            skipAmenityPremium: !hasComparableCalibration,
+        }
     );
 
     const note = buildAiNote(normalized);

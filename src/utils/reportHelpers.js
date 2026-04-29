@@ -79,7 +79,7 @@ function sanitizeBuildingDetails(bd) {
         openParking: bd.openParking,
         closedParking: bd.closedParking,
 
-        hasSportsArea: bd.hasSportsArea,
+        hasSportsArea: bd.hasSportsArea || bd.hasFitnessCenter,
         hasCaretaker: bd.hasCaretaker,
         hasChildrenPark: bd.hasChildrenPark,
         security: bd.security,

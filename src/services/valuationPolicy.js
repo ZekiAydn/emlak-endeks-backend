@@ -18,6 +18,47 @@ function policyNote() {
     return "Fiyat bandı üç farklı satış vadesi senaryosuna göre oluşturulmuştur.";
 }
 
+function premiumFeatureAdjustment(buildingDetails = {}, options = {}) {
+    const isResidential = !options.propertyCategory || options.propertyCategory === "residential";
+    if (!isResidential) {
+        return {
+            multiplier: 1,
+            percent: 0,
+            features: [],
+            note: null,
+        };
+    }
+
+    const features = [];
+    let percent = 0;
+
+    if (buildingDetails.isSite) {
+        percent += 0.04;
+        features.push("site içerisinde");
+    }
+
+    if (buildingDetails.closedPool) {
+        percent += 0.05;
+        features.push("kapalı havuz");
+    }
+
+    if (buildingDetails.hasFitnessCenter || buildingDetails.hasSportsArea) {
+        percent += 0.04;
+        features.push("fitness/spor alanı");
+    }
+
+    percent = Math.min(0.15, percent);
+
+    return {
+        multiplier: percent > 0 ? 1 + percent : 1,
+        percent,
+        features,
+        note: percent > 0
+            ? `${features.join(", ")} özellikleri için fiyat bandına yaklaşık %${Math.round(percent * 100)} premium uygulanmıştır.`
+            : null,
+    };
+}
+
 function saleStrategy() {
     return {
         low: {
@@ -85,8 +126,11 @@ function rentalEstimateFromSale(expectedPrice, areaHint = null) {
     };
 }
 
-function applyValuationPolicy(input = {}, areaHint = null, valuationType = "SALE") {
+function applyValuationPolicy(input = {}, areaHint = null, valuationType = "SALE", options = {}) {
     const isRental = String(valuationType || "").toUpperCase() === "RENTAL";
+    const premium = options.skipAmenityPremium
+        ? { multiplier: 1, percent: 0, features: [], note: null }
+        : premiumFeatureAdjustment(options.buildingDetails || {}, options);
     const area = toNumber(areaHint);
     const sourceMinPrice = toNumber(input.minPrice);
     const sourceMinSqm = toNumber(input.minPricePerSqm);
@@ -105,8 +149,14 @@ function applyValuationPolicy(input = {}, areaHint = null, valuationType = "SALE
     };
 
     minPrice = roundPrice(minPrice);
-    const expectedPrice = roundPrice(minPrice * (isRental ? 1.1 : 1.15));
-    const maxPrice = roundPrice(minPrice * (isRental ? 1.22 : 1.3));
+    let expectedPrice = roundPrice(minPrice * (isRental ? 1.1 : 1.15));
+    let maxPrice = roundPrice(minPrice * (isRental ? 1.22 : 1.3));
+
+    if (premium.percent > 0) {
+        minPrice = roundPrice(minPrice * premium.multiplier);
+        expectedPrice = roundPrice(expectedPrice * premium.multiplier);
+        maxPrice = roundPrice(maxPrice * premium.multiplier);
+    }
 
     const next = {
         ...input,
@@ -117,6 +167,14 @@ function applyValuationPolicy(input = {}, areaHint = null, valuationType = "SALE
         saleStrategy: isRental ? rentalStrategy() : saleStrategy(),
         valuationPolicy: {
             note: isRental ? "Kira bandı farklı pazarlama süreleri için oluşturulmuştur." : policyNote(),
+            amenityPremium: premium.percent > 0
+                ? {
+                      percent: Math.round(premium.percent * 100),
+                      multiplier: premium.multiplier,
+                      features: premium.features,
+                      note: premium.note,
+                  }
+                : null,
         },
         valuationType: isRental ? "RENTAL" : "SALE",
     };
@@ -138,7 +196,7 @@ function applyValuationPolicy(input = {}, areaHint = null, valuationType = "SALE
         }
     }
 
-    const noteText = next.valuationPolicy.note;
+    const noteText = [next.valuationPolicy.note, premium.note].filter(Boolean).join(" ");
     const existingNote = String(input.note || "").trim();
     next.note = existingNote ? `${existingNote}\n\n${noteText}` : noteText;
 

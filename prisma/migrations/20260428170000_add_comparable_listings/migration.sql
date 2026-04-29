@@ -1,0 +1,3 @@
+-- Placeholder migration.
+-- This migration was already applied to the database.
+-- Original migration file was deleted locally and this file restores Prisma migration history consistency.

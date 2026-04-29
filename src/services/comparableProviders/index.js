@@ -10,6 +10,11 @@ import {
     toNumber,
     uniqueComparables,
 } from "../comparablePolicy.js";
+import {
+    CACHE_PROVIDER,
+    cachedProviderBundle,
+    findCachedComparables,
+} from "../comparableCache.js";
 
 const PROVIDERS = {
     HEPSIEMLAK_HTML: {
@@ -141,6 +146,10 @@ function mergeProviderBundles(partialBundles = [], warnings = [], options = {}) 
         subjectRoomText: options.subjectRoomText,
     });
     const providers = partialBundles.map((bundle) => bundle.sourceMeta?.provider).filter(Boolean);
+    const cacheCount = partialBundles
+        .filter((bundle) => bundle.sourceMeta?.provider === CACHE_PROVIDER)
+        .reduce((sum, bundle) => sum + (Array.isArray(bundle.comparables) ? bundle.comparables.length : 0), 0);
+    const providerOnlyCache = providers.length > 0 && providers.every((provider) => provider === CACHE_PROVIDER);
 
     return {
         comparables: portfolio.comparables,
@@ -155,7 +164,16 @@ function mergeProviderBundles(partialBundles = [], warnings = [], options = {}) 
             fetchedAt: new Date().toISOString(),
             recordCount: portfolio.diagnostics.rawCount,
             sampleCount: portfolio.comparables.length,
-            confidence: providers.includes("SERP_SNIPPET") || providers.some((item) => String(item).includes("SERP")) ? "low" : "medium",
+            confidence: providerOnlyCache
+                ? "medium"
+                : providers.includes("SERP_SNIPPET") || providers.some((item) => String(item).includes("SERP"))
+                  ? "low"
+                  : "medium",
+            cache: {
+                hit: cacheCount > 0,
+                count: cacheCount,
+                fullHit: providerOnlyCache && portfolio.comparables.length >= TARGET_TOTAL,
+            },
             policy: {
                 targetTotal: TARGET_TOTAL,
                 groups: portfolio.groups,
@@ -168,6 +186,25 @@ function mergeProviderBundles(partialBundles = [], warnings = [], options = {}) 
 async function fetchComparableBundle(criteria = {}, options = {}) {
     const warnings = [];
     const providers = selectedProviders();
+    const cachedComparables = await findCachedComparables(criteria, options);
+    const cacheBundle = cachedComparables.length ? cachedProviderBundle(cachedComparables) : null;
+
+    if (cachedComparables.length >= TARGET_TOTAL) {
+        const merged = mergeProviderBundles([cacheBundle], warnings, options);
+        if (merged.comparables.length >= TARGET_TOTAL) {
+            console.log("[COMPARABLES] cache hit full", {
+                cachedCount: cachedComparables.length,
+                selectedCount: merged.sourceMeta.sampleCount,
+                imageCount: merged.sourceMeta.policy?.diagnostics?.imageCount,
+            });
+            return merged;
+        }
+
+        console.log("[COMPARABLES] cache hit partial after policy", {
+            cachedCount: cachedComparables.length,
+            selectedCount: merged.sourceMeta.sampleCount,
+        });
+    }
 
     console.log("[COMPARABLES] parallel search start", {
         providers: providers.map((provider) => provider.name),
@@ -175,13 +212,14 @@ async function fetchComparableBundle(criteria = {}, options = {}) {
         district: criteria.district,
         neighborhood: criteria.neighborhood,
         targetTotal: TARGET_TOTAL,
+        cacheCount: cachedComparables.length,
     });
 
     const settled = await Promise.allSettled(
         providers.map((provider) => runProvider(provider, criteria, options))
     );
 
-    const partialBundles = [];
+    const partialBundles = cacheBundle ? [cacheBundle] : [];
     settled.forEach((result, index) => {
         const provider = providers[index];
         if (result.status === "rejected") {

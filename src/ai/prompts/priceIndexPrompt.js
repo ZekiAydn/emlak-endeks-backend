@@ -65,6 +65,7 @@ HESAPLAMA NOTU:
 - m² fiyatını netArea varsa netArea, yoksa grossArea, arsa raporunda landArea üzerinden hesapla.
 - valuationType RENTAL ise minPrice/avgPrice/maxPrice alanlarını aylık kira bedeli olarak düşün; SALE ise satış bedeli olarak düşün.
 - avgPrice "ortalama/beklenen" fiyat veya aylık kira gibi düşün.
+- Konutta site içerisinde olma, kapalı havuz ve fitness/spor alanı birlikte varsa emsal tabanlı değeri yaklaşık %10-%15 yukarı konumlandır; bu özelliklerin tamamı yoksa daha sınırlı ve kontrollü etki ver.
 
 TUTARLILIK:
 - minPrice <= avgPrice <= maxPrice olacak şekilde üret.

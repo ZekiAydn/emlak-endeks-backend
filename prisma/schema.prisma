@@ -333,6 +333,10 @@ model ComparableListing {
   neighborhood String?
   compoundName String?
   addressText  String?
+  reportType   String?
+  valuationType String?
+  latitude     Float?
+  longitude    Float?
 
   grossM2     Float?
   netM2       Float?
@@ -397,7 +401,10 @@ model ComparableListing {
   @@index([reportId])
   @@index([source])
   @@index([city, district, neighborhood])
+  @@index([city, district, neighborhood, reportType, valuationType])
+  @@index([reportType, valuationType])
   @@index([propertyType, roomText])
+  @@index([latitude, longitude])
   @@index([price])
   @@index([pricePerM2])
   @@index([grossAreaM2])

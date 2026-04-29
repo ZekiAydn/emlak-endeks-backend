@@ -1,6 +1,6 @@
 import dns from "node:dns/promises";
 import net from "node:net";
-import { comparableSearchText } from "./propertyCategory.js";
+import { comparableSearchText, propertyCategory } from "./propertyCategory.js";
 
 const MAX_COMPARABLES = 24;
 const MAX_HTML_BYTES = 700_000;
@@ -354,6 +354,13 @@ function buildStreetViewUrl(item, subjectLocation, baseUrl) {
 }
 
 async function enrichComparable(item, subjectLocation, baseUrl) {
+    if (isCompleteForEnrichment(item, subjectLocation)) {
+        return {
+            item: { ...item },
+            imageCandidates: uniqueImageCandidates([item.imageUrl]),
+        };
+    }
+
     const patch = {};
     const snippets = [item?.title, item?.snippet, item?.description].filter(Boolean);
     let htmlText = "";
@@ -614,6 +621,12 @@ function hasComparableArea(item) {
     return Number.isFinite(Number(item?.netArea)) || Number.isFinite(Number(item?.grossArea));
 }
 
+function isCompleteForEnrichment(item = {}, subjectLocation = {}) {
+    if (!item.imageUrl || !hasComparableArea(item)) return false;
+    if (propertyCategory(subjectLocation) !== "residential") return true;
+    return Boolean(toText(item.roomText));
+}
+
 function buildAreaCoverage(beforeRows = [], afterRows = []) {
     const beforeByKey = new Map(
         beforeRows.map((item, index) => [item?.externalId || item?.sourceUrl || String(index), hasComparableArea(item)])
@@ -676,10 +689,13 @@ export async function enrichComparableImages(comparables = [], { subjectLocation
     }
 
     const enrichedResults = await Promise.all(rows.map((item) => enrichComparable(item || {}, subjectLocation, baseUrl)));
-    const [googleImagePool, serpApiImagePool] = await Promise.all([
-        collectGoogleImagePool(rows, subjectLocation),
-        collectSerpApiImagePool(rows, subjectLocation),
-    ]);
+    const missingImageCount = enrichedResults.filter((result) => !result.item?.imageUrl).length;
+    const [googleImagePool, serpApiImagePool] = missingImageCount > 0
+        ? await Promise.all([
+              collectGoogleImagePool(rows, subjectLocation),
+              collectSerpApiImagePool(rows, subjectLocation),
+          ])
+        : [[], []];
     const filled = fillMissingImages(enrichedResults, [...googleImagePool, ...serpApiImagePool], baseUrl);
     const areaCoverage = buildAreaCoverage(rows, filled.rows);
 
