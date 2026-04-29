@@ -215,8 +215,13 @@ async function fetchComparableBundle(criteria = {}, options = {}) {
         cacheCount: cachedComparables.length,
     });
 
+    const providerOptions = {
+        ...options,
+        existingComparableCount: cachedComparables.length,
+    };
+
     const settled = await Promise.allSettled(
-        providers.map((provider) => runProvider(provider, criteria, options))
+        providers.map((provider) => runProvider(provider, criteria, providerOptions))
     );
 
     const partialBundles = cacheBundle ? [cacheBundle] : [];

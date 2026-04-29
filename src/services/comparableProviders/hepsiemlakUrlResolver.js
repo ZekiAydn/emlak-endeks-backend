@@ -231,6 +231,7 @@ async function searchSerpApiOrganic(query, options = {}) {
     if (!apiKey) return [];
 
     const maxResults = Math.min(Number(options.maxResults || 10), 20);
+    const start = Math.max(0, Number(options.start || 0));
 
     const url = new URL("https://serpapi.com/search.json");
     url.searchParams.set("engine", "google");
@@ -238,9 +239,10 @@ async function searchSerpApiOrganic(query, options = {}) {
     url.searchParams.set("hl", "tr");
     url.searchParams.set("gl", "tr");
     url.searchParams.set("num", String(maxResults));
+    if (start > 0) url.searchParams.set("start", String(start));
     url.searchParams.set("api_key", apiKey);
 
-    console.log("[SERPAPI] organic search", { query, maxResults });
+    console.log("[SERPAPI] organic search", { query, maxResults, start });
 
     const response = await fetch(url.toString(), {
         headers: { accept: "application/json" },

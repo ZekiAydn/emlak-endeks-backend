@@ -168,7 +168,6 @@ function normalizeComparable(c) {
         buildingAge: toNum(c?.buildingAge),
         distanceKm,
         distanceMeters,
-        listingAgeDays: toNum(c?.listingAgeDays),
         roomText: c?.roomText ?? null,
         imageUrl: c?.imageUrl ?? null,
         imageSource: c?.imageSource ?? null,

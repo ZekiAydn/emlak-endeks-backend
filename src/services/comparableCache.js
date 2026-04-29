@@ -15,7 +15,7 @@ import {
 const CACHE_PROVIDER = "DB_CACHE";
 const CACHE_QUERY_LIMIT = 240;
 const CACHE_SAVE_TTL_DAYS = 45;
-const CACHE_STALE_DAYS = 14;
+const CACHE_RECHECK_DAYS = 14;
 
 function cleanText(value) {
     return String(value || "").replace(/\s+/g, " ").trim();
@@ -336,7 +336,7 @@ function comparableToCreateUpdate(item = {}, criteria = {}, options = {}) {
             freshnessStatus: "FRESH",
             firstSeenAt: now,
             lastSeenAt: now,
-            staleAfter: addDays(CACHE_STALE_DAYS),
+            staleAfter: addDays(CACHE_RECHECK_DAYS),
             expiresAt: addDays(CACHE_SAVE_TTL_DAYS),
         },
         update: {
@@ -408,7 +408,7 @@ function comparableToCreateUpdate(item = {}, criteria = {}, options = {}) {
             titleSource: fieldSourceEnum(item.titleSource, item.provider === "SERP_SNIPPET" ? "SEARCH_TITLE" : "HTML_VISIBLE_TEXT"),
             freshnessStatus: "FRESH",
             lastSeenAt: now,
-            staleAfter: addDays(CACHE_STALE_DAYS),
+            staleAfter: addDays(CACHE_RECHECK_DAYS),
             expiresAt: addDays(CACHE_SAVE_TTL_DAYS),
         },
     };
@@ -432,7 +432,6 @@ function listingToComparable(row = {}) {
         floorText: row.floorText || null,
         totalFloors: row.totalFloors ?? null,
         distanceMeters: null,
-        listingAgeDays: null,
         imageUrl: row.imageUrl,
         imageSource: row.imageSource || "cache",
         address: row.addressText || [row.city, row.district, row.neighborhood].filter(Boolean).join(" / "),
@@ -476,10 +475,7 @@ function cacheWhere(scope = {}) {
                 ],
             },
             {
-                OR: [
-                    { freshnessStatus: "FRESH" },
-                    { freshnessStatus: "STALE" },
-                ],
+                freshnessStatus: "FRESH",
             },
         ],
         city: { equals: scope.city, mode: "insensitive" },

@@ -4,6 +4,7 @@ import { resolveHepsiemlakUrls, withSort } from "./hepsiemlakUrlResolver.js";
 const HEPSIEMLAK_BASE_URL = "https://www.hepsiemlak.com";
 const GROUP_SIZE = 6;
 const MAX_OUTPUT_COMPARABLES = 24;
+const TARGET_TOTAL = GROUP_SIZE * 3;
 
 const REQUEST_HEADERS = {
     accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
@@ -125,13 +126,6 @@ function parseDateFromText(text) {
     if (Number.isNaN(date.getTime())) return null;
 
     return date.toISOString();
-}
-
-function listingAgeDays(value) {
-    if (!value) return null;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return null;
-    return Math.max(0, Math.round((Date.now() - date.getTime()) / 86400000));
 }
 
 function parseBuildingAge(value) {
@@ -348,7 +342,6 @@ function parseCard($, element, criteria = {}) {
         floorText: floorText || null,
         totalFloors: null,
         distanceMeters: null,
-        listingAgeDays: listingAgeDays(createdAt),
         imageUrl,
         address: parseLocation(text, criteria),
         externalId: extractExternalId(sourceUrl),
@@ -412,7 +405,6 @@ function normalizeScriptComparable(item, criteria = {}) {
         floorText: firstString(item.floorText, item.floor),
         totalFloors: toNumber(item.totalFloors),
         distanceMeters: null,
-        listingAgeDays: listingAgeDays(item.datePosted || item.createdAt),
         imageUrl: normalizeImageUrl(Array.isArray(item.image) ? item.image[0] : item.image),
         address: firstString(address, parseLocation("", criteria)),
         externalId: extractExternalId(sourceUrl),
@@ -571,12 +563,16 @@ function preferTargetRoom(items, subjectRoomText) {
     if (!target) return items;
 
     const exact = items.filter((item) => roomMatches(item.roomText, target));
-    if (exact.length >= 8) return exact;
+    if (exact.length >= TARGET_TOTAL) return exact;
 
     const withoutStudio = items.filter((item) => !/stüdyo|studio|1\+0/i.test(String(item.roomText || "")));
-    if (/^[2-9]\+/.test(target) && withoutStudio.length >= 8) return withoutStudio;
+    if (/^[2-9]\+/.test(target) && withoutStudio.length >= TARGET_TOTAL) return withoutStudio;
 
-    return items;
+    return dedupeComparables([
+        ...exact,
+        ...withoutStudio,
+        ...items,
+    ]);
 }
 
 function quantile(values, ratio) {
@@ -611,17 +607,11 @@ function buildGroups(comparables) {
     const high = priced.length <= GROUP_SIZE ? [] : priced.slice(Math.max(GROUP_SIZE, priced.length - GROUP_SIZE));
     const used = new Set([...low, ...high].map((item) => item.externalId || item.sourceUrl).filter(Boolean));
     const mid = chooseMidComparables(priced, GROUP_SIZE, used);
-    const stale = comparables
-        .filter((item) => Number.isFinite(toNumber(item?.listingAgeDays)))
-        .slice()
-        .sort((a, b) => toNumber(b.listingAgeDays) - toNumber(a.listingAgeDays))
-        .slice(0, GROUP_SIZE);
 
     return {
         low: low.map((item) => item.externalId || item.sourceUrl).filter(Boolean),
         mid: mid.map((item) => item.externalId || item.sourceUrl).filter(Boolean),
         high: high.map((item) => item.externalId || item.sourceUrl).filter(Boolean),
-        stale: stale.map((item) => item.externalId || item.sourceUrl).filter(Boolean),
     };
 }
 
@@ -647,7 +637,7 @@ function orderComparablesForOutput(comparables, groups) {
     const ordered = [];
     const used = new Set();
 
-    ["low", "mid", "high", "stale"].forEach((group) => {
+    ["low", "mid", "high"].forEach((group) => {
         (groups?.[group] || []).forEach((key) => {
             const item = byKey.get(key);
             if (!item || used.has(key)) return;
@@ -665,12 +655,6 @@ function orderComparablesForOutput(comparables, groups) {
 }
 
 function buildMarketProjection(comparables, totalCount) {
-    const ages = comparables.map((item) => toNumber(item.listingAgeDays)).filter(Number.isFinite);
-    const averageMarketingDays = ages.length
-        ? Math.round(ages.reduce((sum, value) => sum + value, 0) / ages.length)
-        : null;
-
-    const waitingComparableCount = ages.filter((value) => value >= 90).length;
     const activeComparableCount = toNumber(totalCount) || comparables.length || null;
 
     let competitionStatus = "Düşük";
@@ -683,19 +667,11 @@ function buildMarketProjection(comparables, totalCount) {
         summaryParts.push(`Hepsiemlak havuzunda ${activeComparableCount} aktif emsal örneği değerlendirildi.`);
     }
 
-    if (Number.isFinite(averageMarketingDays)) {
-        summaryParts.push(`İlanların ortalama yayında kalma süresi yaklaşık ${averageMarketingDays} gün.`);
-    }
-
-    if (waitingComparableCount > 0) {
-        summaryParts.push(`${waitingComparableCount} ilan uzun süredir yayında kaldığı için pazarlık payı artabilir.`);
-    }
-
     return {
-        averageMarketingDays,
+        averageMarketingDays: null,
         competitionStatus,
         activeComparableCount,
-        waitingComparableCount,
+        waitingComparableCount: null,
         annualChangePct: null,
         amortizationYears: null,
         summary: summaryParts.join(" "),
@@ -726,17 +702,11 @@ function buildRegionalStats(criteria, comparables, parcelLookup, marketProjectio
     return {
         demographicsSummary: locationLabel ? `${locationLabel} çevresindeki satılık ilan havuzu üzerinden değerlendirme yapıldı.` : null,
         saleMarketSummary: [areaSummary, unitSummary].filter(Boolean).join(" "),
-        rentalMarketSummary:
-            Number.isFinite(marketProjection?.averageMarketingDays) && marketProjection.averageMarketingDays > 0
-                ? `Aktif satış ilanlarının ortalama yayında kalma süresi ${marketProjection.averageMarketingDays} gün seviyesinde.`
-                : null,
+        rentalMarketSummary: null,
         nearbyPlacesSummary: parcelBits.length
             ? `Parsel doğrulaması ${parcelBits.join(" • ")} bilgileriyle desteklendi.`
             : null,
-        riskSummary:
-            marketProjection?.waitingComparableCount > 0
-                ? `Uzun süredir yayında kalan ilan sayısı ${marketProjection.waitingComparableCount}; doğru fiyat konumlandırması önem taşıyor.`
-                : "Aktif ilan havuzu dengeli görünüyor; rekabet daha çok fiyat ve sunum kalitesinde yoğunlaşıyor.",
+        riskSummary: "Aktif ilan havuzu dengeli görünüyor; rekabet daha çok fiyat ve sunum kalitesinde yoğunlaşıyor.",
     };
 }
 

@@ -48,7 +48,6 @@ function normalizeComps(v) {
         buildingAge: toNumberOrNull(c?.buildingAge),
         distanceKm: toNumberOrNull(c?.distanceKm),
         distanceMeters: toNumberOrNull(c?.distanceMeters),
-        listingAgeDays: toNumberOrNull(c?.listingAgeDays),
         roomText: strOrNull(c?.roomText, 20),
     }));
 }

@@ -1,6 +1,7 @@
 import { searchSerpApiOrganic } from "./hepsiemlakUrlResolver.js";
 import crypto from "node:crypto";
 import { comparableSearchText, propertyCategory, valuationType } from "../propertyCategory.js";
+import { TARGET_TOTAL } from "../comparablePolicy.js";
 
 const ALLOWED_HOSTS = [
     "hepsiemlak.com",
@@ -11,6 +12,8 @@ const ALLOWED_HOSTS = [
 ];
 const GROUP_SIZE = 6;
 const MAX_OUTPUT_COMPARABLES = 24;
+const SERP_PAGE_SIZE = 10;
+const SERP_MAX_PAGES = 2;
 
 function cleanText(value) {
     return String(value || "").replace(/\s+/g, " ").trim();
@@ -105,19 +108,6 @@ function parseRoomText(text) {
     return match ? match[1].replace(/\s+/g, "").replace(",", ".") : null;
 }
 
-function parseListingAgeDays(item) {
-    const dateText = cleanText(item?.date || "");
-    if (!dateText) return null;
-
-    const dayMatch = dateText.match(/(\d+)\s*gün/i);
-    if (dayMatch) return Number(dayMatch[1]);
-
-    const monthMatch = dateText.match(/(\d+)\s*ay/i);
-    if (monthMatch) return Number(monthMatch[1]) * 30;
-
-    return null;
-}
-
 function comparableUnitPrice(item) {
     const price = toNumber(item?.price);
     const area = toNumber(item?.netArea) || toNumber(item?.grossArea);
@@ -156,7 +146,6 @@ function normalizeSerpComparable(item, criteria, index) {
         floorText: null,
         totalFloors: null,
         distanceMeters: null,
-        listingAgeDays: parseListingAgeDays(item),
         imageUrl: item?.thumbnail || null,
         address: [criteria.city, criteria.district, criteria.neighborhood].filter(Boolean).join(" / ") || null,
         externalId: `serp:${crypto.createHash("sha1").update(link).digest("hex").slice(0, 16)}`,
@@ -209,17 +198,75 @@ function roomMatches(itemRoom, targetRoom) {
     return current === target;
 }
 
-function preferTargetRoom(comparables, subjectRoomText) {
+function preferTargetRoom(comparables, subjectRoomText, minTotal = TARGET_TOTAL) {
     const target = String(subjectRoomText || "").trim();
     if (!target) return comparables;
 
     const exact = comparables.filter((item) => roomMatches(item.roomText, target));
-    if (exact.length >= 8) return exact;
+    if (exact.length >= minTotal) return exact;
 
     const withoutStudio = comparables.filter((item) => !/stüdyo|studio|1\+0/i.test(String(item.roomText || "")));
-    if (/^[2-9]\+/.test(target) && withoutStudio.length >= 8) return withoutStudio;
+    if (/^[2-9]\+/.test(target) && withoutStudio.length >= minTotal) return withoutStudio;
 
-    return comparables;
+    return uniqueComparables([
+        ...exact,
+        ...withoutStudio,
+        ...comparables,
+    ]);
+}
+
+function normalizedCandidateComparables(organicItems, criteria = {}, options = {}) {
+    const category = propertyCategory(criteria);
+    const unique = uniqueComparables(
+        organicItems
+            .map((item, index) => normalizeSerpComparable(item, criteria, index))
+            .filter(Boolean)
+    );
+
+    if (category !== "residential") return unique;
+
+    const existingCount = Number(options.existingComparableCount || 0);
+    const desiredCount = Math.max(TARGET_TOTAL, Math.min(MAX_OUTPUT_COMPARABLES, TARGET_TOTAL - existingCount + GROUP_SIZE));
+    return preferTargetRoom(unique, options.subjectRoomText, desiredCount);
+}
+
+async function runSerpQueryPage(queries = [], { pageIndex = 0, pageSize = SERP_PAGE_SIZE } = {}) {
+    const start = pageIndex * pageSize;
+    const settled = await Promise.allSettled(
+        queries.map(async (query) => ({
+            query,
+            pageIndex,
+            start,
+            results: await searchSerpApiOrganic(query, { maxResults: pageSize, start }),
+        }))
+    );
+
+    const warnings = [];
+    const items = [];
+
+    settled.forEach((result, index) => {
+        const query = queries[index];
+        if (result.status === "rejected") {
+            warnings.push(`SERP_SNIPPET: ${String(result.reason?.message || result.reason)}`);
+            console.warn("[SERP_SNIPPET] query failed", {
+                query,
+                pageIndex,
+                start,
+                message: String(result.reason?.message || result.reason),
+            });
+            return;
+        }
+
+        items.push(...(result.value.results || []));
+        console.log("[SERP_SNIPPET] query success", {
+            query: result.value.query,
+            pageIndex: result.value.pageIndex,
+            start: result.value.start,
+            count: result.value.results?.length || 0,
+        });
+    });
+
+    return { items, warnings };
 }
 
 function chooseMidComparables(sortedItems, count, excludedKeys) {
@@ -239,17 +286,11 @@ function buildGroups(comparables) {
     const high = priced.length <= GROUP_SIZE ? [] : priced.slice(Math.max(GROUP_SIZE, priced.length - GROUP_SIZE));
     const used = new Set([...low, ...high].map((item) => item.externalId || item.sourceUrl).filter(Boolean));
     const mid = chooseMidComparables(priced, GROUP_SIZE, used);
-    const stale = comparables
-        .filter((item) => Number.isFinite(toNumber(item?.listingAgeDays)))
-        .slice()
-        .sort((a, b) => toNumber(b.listingAgeDays) - toNumber(a.listingAgeDays))
-        .slice(0, GROUP_SIZE);
 
     return {
         low: low.map((item) => item.externalId || item.sourceUrl).filter(Boolean),
         mid: mid.map((item) => item.externalId || item.sourceUrl).filter(Boolean),
         high: high.map((item) => item.externalId || item.sourceUrl).filter(Boolean),
-        stale: stale.map((item) => item.externalId || item.sourceUrl).filter(Boolean),
     };
 }
 
@@ -274,7 +315,7 @@ function orderComparablesForOutput(comparables, groups) {
     const ordered = [];
     const used = new Set();
 
-    ["low", "mid", "high", "stale"].forEach((group) => {
+    ["low", "mid", "high"].forEach((group) => {
         (groups?.[group] || []).forEach((key) => {
             const item = byKey.get(key);
             if (!item || used.has(key)) return;
@@ -347,21 +388,13 @@ function buildPriceBand(comparables, subjectArea) {
 }
 
 function buildMarketProjection(comparables) {
-    const ages = comparables.map((item) => toNumber(item.listingAgeDays)).filter(Number.isFinite);
-    const averageMarketingDays = ages.length
-        ? Math.round(ages.reduce((sum, value) => sum + value, 0) / ages.length)
-        : null;
-
     const summaryParts = [`Arama sonucu özetlerinden ${comparables.length} fiyatlı emsal çıkarıldı.`];
-    if (Number.isFinite(averageMarketingDays)) {
-        summaryParts.push(`Sonuçlarda görünen tarih bilgilerine göre ortalama ilan yaşı yaklaşık ${averageMarketingDays} gün.`);
-    }
 
     return {
-        averageMarketingDays,
+        averageMarketingDays: null,
         competitionStatus: comparables.length >= 12 ? "Orta" : "Düşük",
         activeComparableCount: comparables.length,
-        waitingComparableCount: ages.filter((value) => value >= 90).length,
+        waitingComparableCount: null,
         annualChangePct: null,
         amortizationYears: null,
         summary: summaryParts.join(" "),
@@ -409,41 +442,48 @@ async function fetchSerpSnippetComparableBundle(criteria = {}, options = {}) {
     }
 
     const maxQueries = Math.max(1, Math.min(Number(5), 5));
-    const maxResults = Math.max(5, Math.min(Number(20), 20));
+    const maxResults = SERP_PAGE_SIZE;
     const queries = buildQueries(criteria).slice(0, maxQueries);
     const warnings = [];
     const organicItems = [];
+    const existingCount = Number(options.existingComparableCount || 0);
+    const desiredComparableCount = Math.max(TARGET_TOTAL, Math.min(MAX_OUTPUT_COMPARABLES, TARGET_TOTAL - existingCount + GROUP_SIZE));
+    let pagesUsed = 0;
 
-    console.log("[SERP_SNIPPET] query batch start", { queries: queries.length, maxResults });
-    const settled = await Promise.allSettled(
-        queries.map(async (query) => ({
-            query,
-            results: await searchSerpApiOrganic(query, { maxResults }),
-        }))
-    );
-
-    settled.forEach((result, index) => {
-        const query = queries[index];
-        if (result.status === "rejected") {
-            warnings.push(`SERP_SNIPPET: ${String(result.reason?.message || result.reason)}`);
-            console.warn("[SERP_SNIPPET] query failed", { query, message: String(result.reason?.message || result.reason) });
-            return;
-        }
-
-        organicItems.push(...(result.value.results || []));
-        console.log("[SERP_SNIPPET] query success", {
-            query: result.value.query,
-            count: result.value.results?.length || 0,
-        });
+    console.log("[SERP_SNIPPET] query batch start", {
+        queries: queries.length,
+        maxResults,
+        maxPages: SERP_MAX_PAGES,
+        existingCount,
+        desiredComparableCount,
     });
 
-    const category = propertyCategory(criteria);
-    const unique = uniqueComparables(
-        organicItems
-            .map((item, index) => normalizeSerpComparable(item, criteria, index))
-            .filter(Boolean)
-    );
-    const candidateComparables = category === "residential" ? preferTargetRoom(unique, options.subjectRoomText) : unique;
+    const firstPage = await runSerpQueryPage(queries, { pageIndex: 0, pageSize: maxResults });
+    pagesUsed = 1;
+    warnings.push(...firstPage.warnings);
+    organicItems.push(...firstPage.items);
+
+    let candidateComparables = normalizedCandidateComparables(organicItems, criteria, {
+        ...options,
+        existingComparableCount: existingCount,
+    });
+
+    if (candidateComparables.length < desiredComparableCount && SERP_MAX_PAGES > 1) {
+        console.log("[SERP_SNIPPET] second page needed", {
+            candidateCount: candidateComparables.length,
+            desiredComparableCount,
+        });
+
+        const secondPage = await runSerpQueryPage(queries, { pageIndex: 1, pageSize: maxResults });
+        pagesUsed = 2;
+        warnings.push(...secondPage.warnings);
+        organicItems.push(...secondPage.items);
+        candidateComparables = normalizedCandidateComparables(organicItems, criteria, {
+            ...options,
+            existingComparableCount: existingCount,
+        });
+    }
+
 
     if (candidateComparables.length < 12) {
         warnings.push(`SERP_SNIPPET: 12 emsal için yeterli fiyatlı sonuç bulunamadı (${candidateComparables.length})`);
@@ -469,6 +509,9 @@ async function fetchSerpSnippetComparableBundle(criteria = {}, options = {}) {
             recordCount: organicItems.length,
             sampleCount: enriched.length,
             serpUsed: true,
+            serpPagesUsed: pagesUsed,
+            desiredComparableCount,
+            candidateCount: candidateComparables.length,
             confidence: "low",
             searchQueries: queries,
         },

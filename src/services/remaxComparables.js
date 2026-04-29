@@ -362,14 +362,6 @@ function haversineMeters(a, b) {
     return Math.round(earthRadius * c);
 }
 
-function listingAgeDays(value) {
-    if (!value) return null;
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return null;
-    const diffMs = Date.now() - date.getTime();
-    return Math.max(0, Math.round(diffMs / 86400000));
-}
-
 function parseFloorNumber(value) {
     const text = String(value || "").trim();
     if (!text) return null;
@@ -427,7 +419,6 @@ function comparableFromListing(item, subjectPoint) {
         floorText,
         totalFloors: null,
         distanceMeters: haversineMeters(subjectPoint, { lat, lon }),
-        listingAgeDays: listingAgeDays(item?.createDate),
         imageUrl: normalizeImageUrl(item?.images?.[0]),
         address: item?.address || null,
         externalId,
@@ -580,17 +571,11 @@ function buildGroups(comparables) {
         [...low, ...high].map((item) => item.externalId || item.sourceUrl).filter(Boolean)
     );
     const mid = chooseMidComparables(priced, GROUP_SIZE, used);
-    const stale = comparables
-        .filter((item) => Number.isFinite(toNumber(item?.listingAgeDays)))
-        .slice()
-        .sort((a, b) => toNumber(b.listingAgeDays) - toNumber(a.listingAgeDays))
-        .slice(0, GROUP_SIZE);
 
     return {
         low: low.map((item) => item.externalId || item.sourceUrl).filter(Boolean),
         mid: mid.map((item) => item.externalId || item.sourceUrl).filter(Boolean),
         high: high.map((item) => item.externalId || item.sourceUrl).filter(Boolean),
-        stale: stale.map((item) => item.externalId || item.sourceUrl).filter(Boolean),
     };
 }
 
@@ -604,7 +589,7 @@ function orderComparablesForOutput(comparables, groups) {
     const ordered = [];
     const used = new Set();
 
-    ["low", "mid", "high", "stale"].forEach((group) => {
+    ["low", "mid", "high"].forEach((group) => {
         (groups?.[group] || []).forEach((key) => {
             const item = byKey.get(key);
             if (!item || used.has(key)) return;
@@ -617,11 +602,6 @@ function orderComparablesForOutput(comparables, groups) {
         .filter((item) => {
             const key = item.externalId || item.sourceUrl;
             return key ? !used.has(key) : true;
-        })
-        .sort((a, b) => {
-            const ageA = Number.isFinite(Number(a?.listingAgeDays)) ? Number(a.listingAgeDays) : Number.MAX_SAFE_INTEGER;
-            const ageB = Number.isFinite(Number(b?.listingAgeDays)) ? Number(b.listingAgeDays) : Number.MAX_SAFE_INTEGER;
-            return ageA - ageB;
         });
 
     return [...ordered, ...remainder].slice(0, MAX_OUTPUT_COMPARABLES);
@@ -639,12 +619,6 @@ function quantile(values, ratio) {
 }
 
 function buildMarketProjection(comparables, totalCount) {
-    const ages = comparables.map((item) => toNumber(item.listingAgeDays)).filter(Number.isFinite);
-    const averageMarketingDays = ages.length
-        ? Math.round(ages.reduce((sum, value) => sum + value, 0) / ages.length)
-        : null;
-
-    const waitingComparableCount = ages.filter((value) => value >= 90).length;
     const activeComparableCount = toNumber(totalCount) || comparables.length || null;
 
     let competitionStatus = "Düşük";
@@ -655,18 +629,11 @@ function buildMarketProjection(comparables, totalCount) {
     if (activeComparableCount) {
         summaryParts.push(`RE/MAX havuzunda ${activeComparableCount} aktif emsal görüldü.`);
     }
-    if (Number.isFinite(averageMarketingDays)) {
-        summaryParts.push(`İlanların ortalama yayında kalma süresi yaklaşık ${averageMarketingDays} gün.`);
-    }
-    if (waitingComparableCount > 0) {
-        summaryParts.push(`${waitingComparableCount} ilan uzun süredir yayında kaldığı için pazarlık payı artabilir.`);
-    }
-
     return {
-        averageMarketingDays,
+        averageMarketingDays: null,
         competitionStatus,
         activeComparableCount,
-        waitingComparableCount,
+        waitingComparableCount: null,
         annualChangePct: null,
         amortizationYears: null,
         summary: summaryParts.join(" "),
@@ -698,18 +665,12 @@ function buildRegionalStats(criteria, comparables, parcelLookup, marketProjectio
     if (parcelLookup?.properties?.quality) parcelBits.push(parcelLookup.properties.quality);
     if (parcelLookup?.properties?.area) parcelBits.push(`${parcelLookup.properties.area} m²`);
 
-    const riskSummary =
-        marketProjection?.waitingComparableCount > 0
-            ? `Uzun süredir yayında kalan ilan sayısı ${marketProjection.waitingComparableCount}; doğru fiyat konumlandırması önem taşıyor.`
-            : "Aktif ilan havuzu dengeli görünüyor; rekabet daha çok fiyat ve sunum kalitesinde yoğunlaşıyor.";
+    const riskSummary = "Aktif ilan havuzu dengeli görünüyor; rekabet daha çok fiyat ve sunum kalitesinde yoğunlaşıyor.";
 
     return {
         demographicsSummary: locationLabel ? `${locationLabel} çevresindeki satılık konut havuzu üzerinden değerlendirme yapıldı.` : null,
         saleMarketSummary: [areaSummary, unitSummary].filter(Boolean).join(" "),
-        rentalMarketSummary:
-            Number.isFinite(marketProjection?.averageMarketingDays) && marketProjection.averageMarketingDays > 0
-                ? `Aktif satış ilanlarının ortalama yayında kalma süresi ${marketProjection.averageMarketingDays} gün seviyesinde.`
-                : null,
+        rentalMarketSummary: null,
         nearbyPlacesSummary: parcelBits.length
             ? `Parsel doğrulaması ${parcelBits.join(" • ")} bilgileriyle desteklendi.`
             : null,
