@@ -133,7 +133,11 @@ function applyValuationPolicy(input = {}, areaHint = null, valuationType = "SALE
         : premiumFeatureAdjustment(options.buildingDetails || {}, options);
     const area = toNumber(areaHint);
     const sourceMinPrice = toNumber(input.minPrice);
+    const sourceExpectedPrice = toNumber(input.expectedPrice ?? input.avgPrice);
+    const sourceMaxPrice = toNumber(input.maxPrice);
     const sourceMinSqm = toNumber(input.minPricePerSqm);
+    const sourceExpectedSqm = toNumber(input.expectedPricePerSqm ?? input.avgPricePerSqm);
+    const sourceMaxSqm = toNumber(input.maxPricePerSqm);
 
     let minPrice = sourceMinPrice;
     if (minPrice === null && sourceMinSqm !== null && area && area > 0) {
@@ -149,8 +153,20 @@ function applyValuationPolicy(input = {}, areaHint = null, valuationType = "SALE
     };
 
     minPrice = roundPrice(minPrice);
-    let expectedPrice = roundPrice(minPrice * (isRental ? 1.1 : 1.15));
-    let maxPrice = roundPrice(minPrice * (isRental ? 1.22 : 1.3));
+    let expectedPrice = sourceExpectedPrice;
+    if (expectedPrice === null && sourceExpectedSqm !== null && area && area > 0) {
+        expectedPrice = sourceExpectedSqm * area;
+    }
+    expectedPrice = roundPrice(expectedPrice ?? minPrice * (isRental ? 1.1 : 1.15));
+
+    let maxPrice = sourceMaxPrice;
+    if (maxPrice === null && sourceMaxSqm !== null && area && area > 0) {
+        maxPrice = sourceMaxSqm * area;
+    }
+    maxPrice = roundPrice(maxPrice ?? minPrice * (isRental ? 1.22 : 1.3));
+
+    if (expectedPrice < minPrice) expectedPrice = minPrice;
+    if (maxPrice < expectedPrice) maxPrice = expectedPrice;
 
     if (premium.percent > 0) {
         minPrice = roundPrice(minPrice * premium.multiplier);

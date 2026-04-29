@@ -70,6 +70,14 @@ function toNum(value) {
     return Number.isFinite(n) ? n : null;
 }
 
+function firstPositive(...values) {
+    for (const value of values) {
+        const n = toNum(value);
+        if (Number.isFinite(n) && n > 0) return n;
+    }
+    return null;
+}
+
 function reportTypeValue(value) {
     const text = cleanString(value || "RESIDENTIAL").toUpperCase();
     if (["RESIDENTIAL", "COMMERCIAL", "LAND"].includes(text)) return text;
@@ -248,6 +256,7 @@ function buildExternalDataContext(report, body = {}) {
         reportType: cleanString(body.reportType ?? location.reportType ?? report.reportType ?? ""),
         valuationType: valuationTypeValue(body.valuationType, body.comparablesJson?.valuationType, report.comparablesJson?.valuationType),
     };
+    const comparableCategory = propertyCategory(comparableCriteria);
     const parcelCriteria = {
         city: cleanString(body.tkgmCity ?? location.tkgmCity ?? comparableCriteria.city),
         district: cleanString(body.tkgmDistrict ?? location.tkgmDistrict ?? comparableCriteria.district),
@@ -256,14 +265,14 @@ function buildExternalDataContext(report, body = {}) {
         parcelNo: cleanString(body.parcelNo ?? location.parcelNo ?? ""),
     };
 
-    let subjectArea =
-        toNum(body.subjectArea) ??
-        toNum(propertyDetails.netArea) ??
-        toNum(propertyDetails.grossArea) ??
-        toNum(body.landArea) ??
-        toNum(location.landArea) ??
-        null;
-    const comparableCategory = propertyCategory(comparableCriteria);
+    const parcelArea = firstPositive(
+        body.landArea,
+        location.landArea,
+        report.comparablesJson?.parcelLookup?.properties?.area
+    );
+    const subjectArea = comparableCategory === "land"
+        ? firstPositive(body.subjectArea, parcelArea, propertyDetails.grossArea, propertyDetails.netArea)
+        : firstPositive(body.subjectArea, propertyDetails.grossArea, propertyDetails.netArea, parcelArea);
     const subjectRoomText =
         comparableCategory === "residential" && propertyDetails.roomCount !== undefined && propertyDetails.roomCount !== null
             ? `${propertyDetails.roomCount}${propertyDetails.salonCount !== undefined && propertyDetails.salonCount !== null ? `+${propertyDetails.salonCount}` : ""}`
@@ -360,7 +369,12 @@ async function updateParcelDataForReport(report, body = {}, { requireInputs = fa
         parcelLookup = await fetchParcelLookup(context.parcelCriteria);
         if (parcelLookup) {
             parcelLookup.sourceUrl = buildParcelHashUrl(parcelLookup);
-            context.subjectArea = context.subjectArea ?? toNum(parcelLookup?.properties?.area);
+            const parcelArea = firstPositive(parcelLookup?.properties?.area);
+            if (context.comparableCategory === "land" && parcelArea) {
+                context.subjectArea = parcelArea;
+            } else {
+                context.subjectArea = context.subjectArea ?? parcelArea;
+            }
         }
         console.log("[PARCEL_DATA] lookup success", {
             reportId,
@@ -447,6 +461,7 @@ async function updateComparableDataForReport(req, report, body = {}) {
                 subjectPoint: parcelLookup?.center || null,
                 subjectArea: context.subjectArea,
                 subjectRoomText: context.subjectRoomText,
+                propertyCategory: context.comparableCategory,
             });
 
             if (Array.isArray(bundle?.warnings) && bundle.warnings.length) {
@@ -993,14 +1008,15 @@ export const autofillExternalData = async (req, res) => {
         parcelNo: cleanString(body.parcelNo ?? location.parcelNo ?? ""),
     };
 
-    let subjectArea =
-        toNum(body.subjectArea) ??
-        toNum(propertyDetails.netArea) ??
-        toNum(propertyDetails.grossArea) ??
-        toNum(body.landArea) ??
-        toNum(location.landArea) ??
-        null;
     const comparableCategory = propertyCategory(remaxCriteria);
+    const parcelArea = firstPositive(
+        body.landArea,
+        location.landArea,
+        report.comparablesJson?.parcelLookup?.properties?.area
+    );
+    let subjectArea = comparableCategory === "land"
+        ? firstPositive(body.subjectArea, parcelArea, propertyDetails.grossArea, propertyDetails.netArea)
+        : firstPositive(body.subjectArea, propertyDetails.grossArea, propertyDetails.netArea, parcelArea);
     const subjectRoomText =
         comparableCategory === "residential" && propertyDetails.roomCount !== undefined && propertyDetails.roomCount !== null
             ? `${propertyDetails.roomCount}${propertyDetails.salonCount !== undefined && propertyDetails.salonCount !== null ? `+${propertyDetails.salonCount}` : ""}`
@@ -1014,7 +1030,10 @@ export const autofillExternalData = async (req, res) => {
             parcelLookup = await fetchParcelLookup(parcelCriteria);
             if (parcelLookup) {
                 parcelLookup.sourceUrl = buildParcelHashUrl(parcelLookup);
-                subjectArea = subjectArea ?? toNum(parcelLookup?.properties?.area);
+                const fetchedParcelArea = firstPositive(parcelLookup?.properties?.area);
+                subjectArea = comparableCategory === "land"
+                    ? fetchedParcelArea || subjectArea
+                    : subjectArea || fetchedParcelArea;
             }
         } catch (error) {
             warnings.push(String(error.message || error));
@@ -1029,6 +1048,7 @@ export const autofillExternalData = async (req, res) => {
                 subjectPoint: parcelLookup?.center || null,
                 subjectArea,
                 subjectRoomText,
+                propertyCategory: comparableCategory,
             });
 
             if (Array.isArray(bundle?.warnings) && bundle.warnings.length) {

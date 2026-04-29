@@ -1,6 +1,7 @@
 const TARGET_GROUP_SIZE = 6;
 const TARGET_TOTAL = TARGET_GROUP_SIZE * 3;
 const PROVIDER_TIMEOUT_MS = 45000;
+const MIN_VALUATION_SAMPLE = 3;
 
 function toNumber(value) {
     if (value === undefined || value === null || value === "") return null;
@@ -36,8 +37,13 @@ function comparableUnitPrice(item) {
     return Math.round(price / area);
 }
 
+function comparablePrice(item) {
+    const price = toNumber(item?.price);
+    return Number.isFinite(price) && price > 0 ? price : null;
+}
+
 function priceMetric(item) {
-    return comparableUnitPrice(item) || toNumber(item?.price);
+    return comparablePrice(item);
 }
 
 function hasImage(item) {
@@ -52,6 +58,10 @@ function roomMatches(itemRoom, targetRoom) {
     const current = String(itemRoom || "").replace(/\s+/g, "").toLocaleLowerCase("tr-TR");
     const target = String(targetRoom || "").replace(/\s+/g, "").toLocaleLowerCase("tr-TR");
     return Boolean(current && target && current === target);
+}
+
+function isStudioRoom(roomText) {
+    return /stüdyo|studio|1\+0/i.test(String(roomText || ""));
 }
 
 function isLikelyTestListing(item) {
@@ -115,6 +125,28 @@ function trimOutliers(items = []) {
     return filtered.length >= TARGET_GROUP_SIZE ? filtered : clean;
 }
 
+function trimPriceOutliers(items = []) {
+    const clean = items.filter((item) => {
+        if (isLikelyTestListing(item)) return false;
+        return Number.isFinite(comparablePrice(item));
+    });
+
+    const prices = clean.map(comparablePrice).filter(Number.isFinite).sort((a, b) => a - b);
+    if (prices.length < 8) return clean;
+
+    const q1 = quantile(prices, 0.25);
+    const q3 = quantile(prices, 0.75);
+    const iqr = q3 - q1;
+    const lower = Math.max(1, q1 - iqr * 1.5);
+    const upper = q3 + iqr * 1.5;
+    const filtered = clean.filter((item) => {
+        const price = comparablePrice(item);
+        return Number.isFinite(price) && price >= lower && price <= upper;
+    });
+
+    return filtered.length >= MIN_VALUATION_SAMPLE ? filtered : clean;
+}
+
 function qualityScore(item, options = {}) {
     let score = 0;
 
@@ -161,16 +193,60 @@ function selectBest(items, count, usedKeys, options = {}) {
         .slice(0, count);
 }
 
+function sortByPrice(items = []) {
+    return items.slice().sort((a, b) => (comparablePrice(a) || 0) - (comparablePrice(b) || 0));
+}
+
+function filterByComparableArea(items = [], options = {}) {
+    const subjectArea = toNumber(options.subjectArea);
+    if (!Number.isFinite(subjectArea) || subjectArea <= 0) return items;
+
+    const isLand = options.propertyCategory === "land";
+    const minRatio = isLand ? 0.2 : 0.45;
+    const maxRatio = isLand ? 5 : 1.9;
+    const areaMatched = items.filter((item) => {
+        const area = comparableArea(item);
+        if (!Number.isFinite(area) || area <= 0) return false;
+        const ratio = area / subjectArea;
+        return ratio >= minRatio && ratio <= maxRatio;
+    });
+
+    return areaMatched.length >= MIN_VALUATION_SAMPLE ? areaMatched : items;
+}
+
+function selectValuationComparables(items = [], options = {}) {
+    let pool = uniqueComparables(items).filter((item) => Number.isFinite(comparablePrice(item)));
+    if (!pool.length) return [];
+
+    pool = trimOutliers(pool);
+    const targetRoom = String(options.subjectRoomText || "").trim();
+
+    if (targetRoom) {
+        const exactRoom = pool.filter((item) => roomMatches(item?.roomText, targetRoom));
+        if (exactRoom.length >= MIN_VALUATION_SAMPLE) {
+            pool = exactRoom;
+        } else if (/^[2-9]\+/.test(targetRoom)) {
+            const withoutStudios = pool.filter((item) => !isStudioRoom(item?.roomText));
+            if (withoutStudios.length >= MIN_VALUATION_SAMPLE) pool = withoutStudios;
+        }
+    }
+
+    pool = filterByComparableArea(pool, options);
+    pool = trimPriceOutliers(pool);
+
+    return sortByPrice(pool);
+}
+
 function selectPortfolioGroups(items = [], options = {}) {
     const unique = uniqueComparables(items);
-    const priced = unique.filter((item) => Number.isFinite(toNumber(item?.price)) && Number.isFinite(priceMetric(item)));
+    const priced = unique.filter((item) => Number.isFinite(comparablePrice(item)));
     const withArea = priced.filter((item) => Number.isFinite(comparableArea(item)));
     let pool = withArea.length >= TARGET_TOTAL ? withArea : priced;
 
     const photoReady = pool.filter((item) => hasImage(item) && Number.isFinite(comparableArea(item)));
     if (photoReady.length >= TARGET_TOTAL) pool = photoReady;
 
-    pool = trimOutliers(pool).sort((a, b) => (priceMetric(a) || 0) - (priceMetric(b) || 0));
+    pool = trimOutliers(pool).sort((a, b) => (comparablePrice(a) || 0) - (comparablePrice(b) || 0));
 
     const third = Math.max(TARGET_GROUP_SIZE, Math.ceil(pool.length / 3));
     const lowBand = pool.slice(0, third);
@@ -179,21 +255,22 @@ function selectPortfolioGroups(items = [], options = {}) {
     const midBand = pool.slice(midStart, midStart + third);
 
     const used = new Set();
-    const low = selectBest(lowBand, TARGET_GROUP_SIZE, used, options);
+    const low = sortByPrice(selectBest(lowBand, TARGET_GROUP_SIZE, used, options));
     low.forEach((item) => used.add(comparableKey(item)));
 
-    const mid = selectBest(midBand, TARGET_GROUP_SIZE, used, options);
+    const mid = sortByPrice(selectBest(midBand, TARGET_GROUP_SIZE, used, options));
     mid.forEach((item) => used.add(comparableKey(item)));
 
-    const high = selectBest(highBand, TARGET_GROUP_SIZE, used, options);
+    const high = sortByPrice(selectBest(highBand, TARGET_GROUP_SIZE, used, options));
     high.forEach((item) => used.add(comparableKey(item)));
 
     const groups = { low, mid, high };
     for (const key of ["low", "mid", "high"]) {
         if (groups[key].length >= TARGET_GROUP_SIZE) continue;
-        const fill = selectBest(pool, TARGET_GROUP_SIZE - groups[key].length, used, options);
+        const fill = sortByPrice(selectBest(pool, TARGET_GROUP_SIZE - groups[key].length, used, options));
         fill.forEach((item) => used.add(comparableKey(item)));
         groups[key].push(...fill);
+        groups[key] = sortByPrice(groups[key]);
     }
 
     const tagged = [
@@ -228,10 +305,12 @@ export {
     TARGET_GROUP_SIZE,
     TARGET_TOTAL,
     comparableKey,
+    comparablePrice,
     comparableUnitPrice,
     priceMetric,
     quantile,
     selectPortfolioGroups,
+    selectValuationComparables,
     toNumber,
     uniqueComparables,
 };

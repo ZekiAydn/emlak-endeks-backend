@@ -7,6 +7,7 @@ import {
     comparableUnitPrice,
     quantile,
     selectPortfolioGroups,
+    selectValuationComparables,
     toNumber,
     uniqueComparables,
 } from "../comparablePolicy.js";
@@ -33,11 +34,10 @@ const PROVIDERS = {
 
 function buildPriceBand(comparables = [], subjectArea = null) {
     const area = toNumber(subjectArea);
-    if (!area || area <= 0) return null;
-
     const unitPrices = comparables.map(comparableUnitPrice).filter(Number.isFinite);
     const prices = comparables.map((item) => toNumber(item?.price)).filter(Number.isFinite);
-    if (unitPrices.length >= 3) {
+
+    if (area && area > 0 && unitPrices.length >= 3) {
         const minPricePerSqm = Math.round(quantile(unitPrices, 0.2));
         const expectedPricePerSqm = Math.round(quantile(unitPrices, 0.5));
         const maxPricePerSqm = Math.round(quantile(unitPrices, 0.8));
@@ -49,7 +49,7 @@ function buildPriceBand(comparables = [], subjectArea = null) {
             expectedPrice: Math.round(expectedPricePerSqm * area),
             maxPrice: Math.round(maxPricePerSqm * area),
             confidence: Math.min(0.66, 0.38 + unitPrices.length * 0.012),
-            note: `${comparables.length} otomatik emsal üzerinden hesaplanan fiyat bandıdır.`,
+            note: `${comparables.length} konuya yakın otomatik emsal üzerinden hesaplanan fiyat bandıdır.`,
         };
     }
 
@@ -61,11 +61,11 @@ function buildPriceBand(comparables = [], subjectArea = null) {
         minPrice,
         expectedPrice,
         maxPrice,
-        minPricePerSqm: Math.round(minPrice / area),
-        expectedPricePerSqm: Math.round(expectedPrice / area),
-        maxPricePerSqm: Math.round(maxPrice / area),
+        minPricePerSqm: area && area > 0 ? Math.round(minPrice / area) : null,
+        expectedPricePerSqm: area && area > 0 ? Math.round(expectedPrice / area) : null,
+        maxPricePerSqm: area && area > 0 ? Math.round(maxPrice / area) : null,
         confidence: Math.min(0.58, 0.34 + prices.length * 0.01),
-        note: `${comparables.length} otomatik emsal fiyat dağılımı üzerinden hesaplanan fiyat bandıdır.`,
+        note: `${comparables.length} konuya yakın otomatik emsal fiyat dağılımı üzerinden hesaplanan fiyat bandıdır.`,
     };
 }
 
@@ -141,6 +141,7 @@ async function runProvider(provider, criteria, options) {
 
 function mergeProviderBundles(partialBundles = [], warnings = [], options = {}) {
     const allComparables = uniqueComparables(partialBundles.flatMap((bundle) => bundle.comparables || []));
+    const valuationComparables = selectValuationComparables(allComparables, options);
     const portfolio = selectPortfolioGroups(allComparables, {
         subjectArea: options.subjectArea,
         subjectRoomText: options.subjectRoomText,
@@ -156,7 +157,7 @@ function mergeProviderBundles(partialBundles = [], warnings = [], options = {}) 
         groups: portfolio.groups,
         marketProjection: buildMarketProjection(portfolio.comparables, portfolio.diagnostics.rawCount),
         regionalStats: null,
-        priceBand: buildPriceBand(portfolio.comparables, options.subjectArea),
+        priceBand: buildPriceBand(valuationComparables, options.subjectArea),
         warnings,
         sourceMeta: {
             provider: providers.length > 1 ? "MIXED" : providers[0] || "NONE",
@@ -177,7 +178,10 @@ function mergeProviderBundles(partialBundles = [], warnings = [], options = {}) 
             policy: {
                 targetTotal: TARGET_TOTAL,
                 groups: portfolio.groups,
-                diagnostics: portfolio.diagnostics,
+                diagnostics: {
+                    ...portfolio.diagnostics,
+                    valuationCount: valuationComparables.length,
+                },
             },
         },
     };
