@@ -414,14 +414,28 @@ async function fetchSerpSnippetComparableBundle(criteria = {}, options = {}) {
     const warnings = [];
     const organicItems = [];
 
-    for (const query of queries) {
-        try {
-            const results = await searchSerpApiOrganic(query, { maxResults });
-            organicItems.push(...results);
-        } catch (error) {
-            warnings.push(`SERP_SNIPPET: ${String(error.message || error)}`);
+    console.log("[SERP_SNIPPET] query batch start", { queries: queries.length, maxResults });
+    const settled = await Promise.allSettled(
+        queries.map(async (query) => ({
+            query,
+            results: await searchSerpApiOrganic(query, { maxResults }),
+        }))
+    );
+
+    settled.forEach((result, index) => {
+        const query = queries[index];
+        if (result.status === "rejected") {
+            warnings.push(`SERP_SNIPPET: ${String(result.reason?.message || result.reason)}`);
+            console.warn("[SERP_SNIPPET] query failed", { query, message: String(result.reason?.message || result.reason) });
+            return;
         }
-    }
+
+        organicItems.push(...(result.value.results || []));
+        console.log("[SERP_SNIPPET] query success", {
+            query: result.value.query,
+            count: result.value.results?.length || 0,
+        });
+    });
 
     const category = propertyCategory(criteria);
     const unique = uniqueComparables(

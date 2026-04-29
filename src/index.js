@@ -54,7 +54,6 @@ app.get("/health/runtime", async (_req, res) => {
     res.json({
         ok: true,
         node: process.version,
-        vercel: Boolean(process.env.VERCEL),
         serverless: isServerlessRuntime(),
         corsOriginsCount: allowed.length,
         browser,

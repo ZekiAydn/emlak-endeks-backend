@@ -1,6 +1,15 @@
 import { fetchRemaxProviderBundle } from "./remaxProvider.js";
 import { fetchHepsiemlakHtmlComparableBundle } from "./hepsiemlakHtmlProvider.js";
 import { fetchSerpSnippetComparableBundle } from "./serpSnippetProvider.js";
+import {
+    PROVIDER_TIMEOUT_MS,
+    TARGET_TOTAL,
+    comparableUnitPrice,
+    quantile,
+    selectPortfolioGroups,
+    toNumber,
+    uniqueComparables,
+} from "../comparablePolicy.js";
 
 const PROVIDERS = {
     HEPSIEMLAK_HTML: {
@@ -16,95 +25,6 @@ const PROVIDERS = {
         fetch: fetchSerpSnippetComparableBundle,
     },
 };
-
-const MIN_COMPLETE_COMPARABLES = 12;
-const GROUP_SIZE = 6;
-const MAX_OUTPUT_COMPARABLES = 24;
-
-function toNumber(value) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-}
-
-function comparableKey(item) {
-    return item?.externalId || item?.sourceUrl || `${item?.title || ""}:${item?.price || ""}`;
-}
-
-function uniqueComparables(items = []) {
-    const seen = new Set();
-    const out = [];
-
-    for (const item of items) {
-        const key = comparableKey(item);
-        if (!key || seen.has(key)) continue;
-        seen.add(key);
-        out.push(item);
-    }
-
-    return out;
-}
-
-function chooseMidComparables(sortedItems, count, excludedKeys) {
-    const candidates = sortedItems.filter((item) => !excludedKeys.has(comparableKey(item)));
-    if (!candidates.length) return [];
-    const start = Math.max(0, Math.floor(candidates.length / 2) - Math.floor(count / 2));
-    return candidates.slice(start, start + count);
-}
-
-function buildGroups(comparables = []) {
-    const priced = comparables
-        .filter((item) => Number.isFinite(toNumber(item?.price)))
-        .slice()
-        .sort((a, b) => toNumber(a.price) - toNumber(b.price));
-
-    const low = priced.slice(0, GROUP_SIZE);
-    const high = priced.length <= GROUP_SIZE ? [] : priced.slice(Math.max(GROUP_SIZE, priced.length - GROUP_SIZE));
-    const used = new Set([...low, ...high].map(comparableKey).filter(Boolean));
-    const mid = chooseMidComparables(priced, GROUP_SIZE, used);
-    const stale = comparables
-        .filter((item) => Number.isFinite(toNumber(item?.listingAgeDays)))
-        .slice()
-        .sort((a, b) => toNumber(b.listingAgeDays) - toNumber(a.listingAgeDays))
-        .slice(0, GROUP_SIZE);
-
-    return {
-        low: low.map(comparableKey).filter(Boolean),
-        mid: mid.map(comparableKey).filter(Boolean),
-        high: high.map(comparableKey).filter(Boolean),
-        stale: stale.map(comparableKey).filter(Boolean),
-    };
-}
-
-function tagGroups(comparables = [], groups = {}) {
-    const tagged = new Map();
-    Object.entries(groups || {}).forEach(([group, ids]) => {
-        (ids || []).forEach((id) => tagged.set(id, group));
-    });
-
-    return comparables.map((item) => ({
-        ...item,
-        group: tagged.get(comparableKey(item)) || item.group || null,
-    }));
-}
-
-function comparableUnitPrice(item) {
-    const direct = toNumber(item?.pricePerSqm);
-    if (direct && direct > 0) return direct;
-    const price = toNumber(item?.price);
-    const area = toNumber(item?.netArea) || toNumber(item?.grossArea);
-    if (!price || !area || area <= 0) return null;
-    return Math.round(price / area);
-}
-
-function quantile(values, ratio) {
-    const list = values.map(toNumber).filter(Number.isFinite).sort((a, b) => a - b);
-    if (!list.length) return null;
-    const pos = (list.length - 1) * ratio;
-    const lower = Math.floor(pos);
-    const upper = Math.ceil(pos);
-    if (lower === upper) return list[lower];
-    return list[lower] * (1 - (pos - lower)) + list[upper] * (pos - lower);
-}
 
 function buildPriceBand(comparables = [], subjectArea = null) {
     const area = toNumber(subjectArea);
@@ -123,8 +43,8 @@ function buildPriceBand(comparables = [], subjectArea = null) {
             minPrice: Math.round(minPricePerSqm * area),
             expectedPrice: Math.round(expectedPricePerSqm * area),
             maxPrice: Math.round(maxPricePerSqm * area),
-            confidence: Math.min(0.62, 0.36 + unitPrices.length * 0.012),
-            note: `${comparables.length} karma emsal üzerinden hesaplanan fiyat bandıdır.`,
+            confidence: Math.min(0.66, 0.38 + unitPrices.length * 0.012),
+            note: `${comparables.length} otomatik emsal üzerinden hesaplanan fiyat bandıdır.`,
         };
     }
 
@@ -139,142 +59,163 @@ function buildPriceBand(comparables = [], subjectArea = null) {
         minPricePerSqm: Math.round(minPrice / area),
         expectedPricePerSqm: Math.round(expectedPrice / area),
         maxPricePerSqm: Math.round(maxPrice / area),
-        confidence: Math.min(0.56, 0.32 + prices.length * 0.01),
-        note: `${comparables.length} karma emsal fiyat dağılımı üzerinden hesaplanan fiyat bandıdır.`,
+        confidence: Math.min(0.58, 0.34 + prices.length * 0.01),
+        note: `${comparables.length} otomatik emsal fiyat dağılımı üzerinden hesaplanan fiyat bandıdır.`,
     };
 }
 
-function buildMarketProjection(comparables = []) {
-    const ages = comparables.map((item) => toNumber(item?.listingAgeDays)).filter(Number.isFinite);
-    const averageMarketingDays = ages.length
-        ? Math.round(ages.reduce((sum, value) => sum + value, 0) / ages.length)
-        : null;
-
+function buildMarketProjection(comparables = [], rawCount = null) {
     return {
-        averageMarketingDays,
-        competitionStatus: comparables.length >= 12 ? "Orta" : "Düşük",
-        activeComparableCount: comparables.length,
-        waitingComparableCount: ages.filter((value) => value >= 90).length,
+        averageMarketingDays: null,
+        competitionStatus: comparables.length >= TARGET_TOTAL ? "Orta" : "Düşük",
+        activeComparableCount: rawCount || comparables.length,
+        waitingComparableCount: null,
         annualChangePct: null,
         amortizationYears: null,
-        summary: `${comparables.length} karma otomatik emsal kaynağından fiyatlı ilan çıkarıldı.`,
-        manualText: `${comparables.length} karma otomatik emsal kaynağından fiyatlı ilan çıkarıldı.`,
-    };
-}
-
-function mergePartialBundles(partialBundles = [], warnings = [], options = {}) {
-    const comparables = uniqueComparables(partialBundles.flatMap((bundle) => bundle.comparables || [])).slice(0, MAX_OUTPUT_COMPARABLES);
-    const groups = buildGroups(comparables);
-    const tagged = tagGroups(comparables, groups);
-    const providers = partialBundles.map((bundle) => bundle.sourceMeta?.provider).filter(Boolean);
-
-    return {
-        comparables: tagged,
-        groups,
-        marketProjection: buildMarketProjection(tagged),
-        regionalStats: null,
-        priceBand: buildPriceBand(tagged, options.subjectArea),
-        warnings,
-        sourceMeta: {
-            provider: providers.length > 1 ? "MIXED" : providers[0] || "MIXED",
-            providers,
-            fetchedAt: new Date().toISOString(),
-            recordCount: tagged.length,
-            sampleCount: tagged.length,
-            confidence: providers.includes("SERP_SNIPPET") ? "low" : "medium",
-        },
+        summary: `${comparables.length} otomatik emsal 6 düşük, 6 orta, 6 yüksek fiyat bandında seçildi.`,
+        manualText: `${comparables.length} otomatik emsal 6 düşük, 6 orta, 6 yüksek fiyat bandında seçildi.`,
     };
 }
 
 function selectedProviders() {
-    const raw =  "HEPSIEMLAK_HTML,REMAX,SERP_SNIPPET";
+    const raw = "HEPSIEMLAK_HTML,REMAX,SERP_SNIPPET";
     const keys = raw
         .split(",")
         .map((item) => item.trim().toUpperCase())
         .filter(Boolean);
-
-    if (
-        process.env.COMPARABLE_SERP_SNIPPET_FALLBACK_ENABLED !== "false" &&
-        !keys.includes("SERP_SNIPPET")
-    ) {
-        keys.push("SERP_SNIPPET");
-    }
 
     return keys
         .map((key) => PROVIDERS[key])
         .filter(Boolean);
 }
 
+function withTimeout(promise, ms, message) {
+    let timer = null;
+    const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), ms);
+    });
+
+    return Promise.race([promise, timeout]).finally(() => {
+        if (timer) clearTimeout(timer);
+    });
+}
+
+async function runProvider(provider, criteria, options) {
+    const startedAt = Date.now();
+    console.log("[COMPARABLES] provider start", {
+        provider: provider.name,
+        city: criteria.city,
+        district: criteria.district,
+        neighborhood: criteria.neighborhood,
+        reportType: criteria.reportType,
+        propertyType: criteria.propertyType,
+        timeoutMs: PROVIDER_TIMEOUT_MS,
+    });
+
+    const bundle = await withTimeout(
+        provider.fetch(criteria, options),
+        PROVIDER_TIMEOUT_MS,
+        `${provider.name}: ${PROVIDER_TIMEOUT_MS}ms timeout`
+    );
+
+    const count = Array.isArray(bundle?.comparables) ? bundle.comparables.length : 0;
+    console.log("[COMPARABLES] provider finish", {
+        provider: provider.name,
+        count,
+        elapsedMs: Date.now() - startedAt,
+    });
+
+    return {
+        ...bundle,
+        sourceMeta: {
+            ...(bundle?.sourceMeta || {}),
+            provider: bundle?.sourceMeta?.provider || provider.name,
+        },
+    };
+}
+
+function mergeProviderBundles(partialBundles = [], warnings = [], options = {}) {
+    const allComparables = uniqueComparables(partialBundles.flatMap((bundle) => bundle.comparables || []));
+    const portfolio = selectPortfolioGroups(allComparables, {
+        subjectArea: options.subjectArea,
+        subjectRoomText: options.subjectRoomText,
+    });
+    const providers = partialBundles.map((bundle) => bundle.sourceMeta?.provider).filter(Boolean);
+
+    return {
+        comparables: portfolio.comparables,
+        groups: portfolio.groups,
+        marketProjection: buildMarketProjection(portfolio.comparables, portfolio.diagnostics.rawCount),
+        regionalStats: null,
+        priceBand: buildPriceBand(portfolio.comparables, options.subjectArea),
+        warnings,
+        sourceMeta: {
+            provider: providers.length > 1 ? "MIXED" : providers[0] || "NONE",
+            providers,
+            fetchedAt: new Date().toISOString(),
+            recordCount: portfolio.diagnostics.rawCount,
+            sampleCount: portfolio.comparables.length,
+            confidence: providers.includes("SERP_SNIPPET") || providers.some((item) => String(item).includes("SERP")) ? "low" : "medium",
+            policy: {
+                targetTotal: TARGET_TOTAL,
+                groups: portfolio.groups,
+                diagnostics: portfolio.diagnostics,
+            },
+        },
+    };
+}
+
 async function fetchComparableBundle(criteria = {}, options = {}) {
     const warnings = [];
     const providers = selectedProviders();
+
+    console.log("[COMPARABLES] parallel search start", {
+        providers: providers.map((provider) => provider.name),
+        city: criteria.city,
+        district: criteria.district,
+        neighborhood: criteria.neighborhood,
+        targetTotal: TARGET_TOTAL,
+    });
+
+    const settled = await Promise.allSettled(
+        providers.map((provider) => runProvider(provider, criteria, options))
+    );
+
     const partialBundles = [];
-
-    for (const provider of providers) {
-        try {
-            console.log("[COMPARABLES] provider start", {
-                provider: provider.name,
-                city: criteria.city,
-                district: criteria.district,
-                neighborhood: criteria.neighborhood,
-                reportType: criteria.reportType,
-                propertyType: criteria.propertyType,
-            });
-
-            const bundle = await provider.fetch(criteria, options);
-            const count = Array.isArray(bundle?.comparables) ? bundle.comparables.length : 0;
-            if (Array.isArray(bundle?.warnings) && bundle.warnings.length) {
-                warnings.push(...bundle.warnings);
-            }
-
-            if (count > 0) {
-                console.log("[COMPARABLES] provider success", {
-                    provider: provider.name,
-                    count,
-                });
-
-                const normalizedBundle = {
-                    ...bundle,
-                    warnings,
-                    sourceMeta: {
-                        ...(bundle.sourceMeta || {}),
-                        provider: bundle.sourceMeta?.provider || provider.name,
-                    },
-                };
-
-                if (count >= MIN_COMPLETE_COMPARABLES && !partialBundles.length) {
-                    return normalizedBundle;
-                }
-
-                partialBundles.push(normalizedBundle);
-                if (uniqueComparables(partialBundles.flatMap((partial) => partial.comparables || [])).length >= MIN_COMPLETE_COMPARABLES) {
-                    return mergePartialBundles(partialBundles, warnings, options);
-                }
-
-                warnings.push(`${provider.name}: ${MIN_COMPLETE_COMPARABLES} emsal için kısmi sonuç bulundu (${count}), diğer kaynaklarla tamamlanıyor.`);
-                continue;
-            }
-
-            const message = `${provider.name}: emsal bulunamadı`;
+    settled.forEach((result, index) => {
+        const provider = providers[index];
+        if (result.status === "rejected") {
+            const message = `${provider.name}: ${String(result.reason?.message || result.reason)}`;
             warnings.push(message);
-
-            console.warn("[COMPARABLES] provider empty", {
-                provider: provider.name,
-                count,
-            });
-        } catch (error) {
-            const message = `${provider.name}: ${String(error.message || error)}`;
-            warnings.push(message);
-
             console.error("[COMPARABLES] provider failed", {
                 provider: provider.name,
-                message: String(error.message || error),
+                message,
             });
+            return;
         }
-    }
+
+        const bundle = result.value || {};
+        const count = Array.isArray(bundle.comparables) ? bundle.comparables.length : 0;
+        if (Array.isArray(bundle.warnings) && bundle.warnings.length) warnings.push(...bundle.warnings);
+
+        if (!count) {
+            warnings.push(`${provider.name}: emsal bulunamadı`);
+            console.warn("[COMPARABLES] provider empty", { provider: provider.name });
+            return;
+        }
+
+        partialBundles.push(bundle);
+    });
 
     if (partialBundles.length) {
-        return mergePartialBundles(partialBundles, warnings, options);
+        const merged = mergeProviderBundles(partialBundles, warnings, options);
+        console.log("[COMPARABLES] parallel search finish", {
+            providers: merged.sourceMeta.providers,
+            rawCount: merged.sourceMeta.recordCount,
+            selectedCount: merged.sourceMeta.sampleCount,
+            imageCount: merged.sourceMeta.policy?.diagnostics?.imageCount,
+        });
+        return merged;
     }
 
     return {

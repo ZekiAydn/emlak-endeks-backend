@@ -97,8 +97,7 @@ export const updateSubscription = async (req, res) => {
         throw badRequest("Geçerli bir paket seçin.", "plan");
     }
 
-    const selfServiceEnabled = process.env.ALLOW_SELF_SUBSCRIPTION_CHANGE === "true";
-    if (plan !== "FREE" && !selfServiceEnabled) {
+    if (plan !== "FREE") {
         throw forbidden("Premium paket aktivasyonu için ödeme işlemi tamamlanmalı.");
     }
 

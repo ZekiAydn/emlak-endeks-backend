@@ -14,6 +14,8 @@ router.put("/reports/:id",authRequired, c.updateReport);
 router.put("/reports/:id/draft",authRequired, c.updateDraftReport);
 router.post("/reports/:id/complete",authRequired, c.completeReport);
 router.delete("/reports/:id",authRequired, c.deleteReport);
+router.post("/reports/:id/parcel-data",authRequired, c.autofillParcelData);
+router.post("/reports/:id/comparables",authRequired, c.autofillComparableData);
 router.post("/reports/:id/external-data",authRequired, c.autofillExternalData);
 router.post("/reports/:id/ai/price-index",authRequired, c.aiPriceIndex);
 

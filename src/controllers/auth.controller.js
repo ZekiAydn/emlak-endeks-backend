@@ -14,22 +14,17 @@ import {
     findIdentityConflict,
     publicUserSelect,
 } from "../utils/authInput.js";
-import { badRequest, conflict, forbidden, notFound, unauthorized } from "../utils/errors.js";
+import { badRequest, conflict, notFound, unauthorized } from "../utils/errors.js";
 import { isEmailConfigured, sendTemporaryPasswordEmail } from "../services/email.js";
 
 function authCookieOptions() {
     const isProduction = process.env.NODE_ENV === "production";
-    const sameSite = process.env.AUTH_COOKIE_SAME_SITE || (isProduction ? "none" : "lax");
-    const domain = String(process.env.AUTH_COOKIE_DOMAIN || "").trim();
 
     return {
         httpOnly: true,
-        sameSite,
-        secure: process.env.AUTH_COOKIE_SECURE
-            ? process.env.AUTH_COOKIE_SECURE === "true"
-            : isProduction,
+        sameSite: isProduction ? "none" : "lax",
+        secure: isProduction,
         path: "/",
-        ...(domain ? { domain } : {}),
     };
 }
 
@@ -49,15 +44,8 @@ export const register = async (req, res) => {
         rePassword,
         passwordConfirm,
         confirmPassword,
-        adminCode,
         fullName,
     } = req.body || {};
-
-    const expectedAdminCode = process.env.ADMIN_REGISTER_CODE || "123456";
-    const isAdminRegistration = Boolean(String(adminCode || "").trim());
-    if (isAdminRegistration && String(adminCode || "").trim() !== expectedAdminCode) {
-        throw forbidden("Admin kodu hatalı.");
-    }
 
     const phone = normalizePhone(rawPhone);
     const phoneError = validatePhone(phone);
@@ -99,7 +87,7 @@ export const register = async (req, res) => {
             email,
             phone,
             passwordHash,
-            role: isAdminRegistration ? "ADMIN" : "AGENT",
+            role: "AGENT",
             subscriptionPlan: "FREE",
             subscriptionStatus: "ACTIVE",
             phoneVerifiedAt: new Date(),

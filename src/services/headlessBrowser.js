@@ -13,26 +13,8 @@ function isServerlessRuntime() {
     );
 }
 
-function configuredExecutablePath() {
-    return (
-        process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ||
-        process.env.CHROMIUM_EXECUTABLE_PATH ||
-        process.env.CHROME_EXECUTABLE_PATH ||
-        null
-    );
-}
-
 async function buildLaunchOptions() {
     const args = new Set(DEFAULT_ARGS);
-    const executablePath = configuredExecutablePath();
-
-    if (executablePath) {
-        return {
-            headless: true,
-            executablePath,
-            args: Array.from(args),
-        };
-    }
 
     if (isServerlessRuntime()) {
         const { default: chromium } = await import("@sparticuz/chromium");

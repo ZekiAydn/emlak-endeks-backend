@@ -1,25 +1,5 @@
-import nodemailer from "nodemailer";
-
-const FROM_EMAIL = process.env.MAIL_FROM || process.env.SMTP_FROM || "info@emlakskor.com";
-const FROM_NAME = process.env.MAIL_FROM_NAME || "EmlakSkor";
-
 function isEmailConfigured() {
-    return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
-}
-
-function transporter() {
-    if (!isEmailConfigured()) return null;
-
-    const port = Number(process.env.SMTP_PORT || 587);
-    return nodemailer.createTransport({
-        host: process.env.SMTP_HOST,
-        port,
-        secure: process.env.SMTP_SECURE ? process.env.SMTP_SECURE === "true" : port === 465,
-        auth: {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS,
-        },
-    });
+    return false;
 }
 
 function escapeHtml(value = "") {
@@ -31,22 +11,9 @@ function escapeHtml(value = "") {
         .replace(/'/g, "&#039;");
 }
 
-async function sendMail({ to, subject, text, html }) {
-    const mailer = transporter();
-    if (!mailer) {
-        console.warn("[MAIL_DISABLED]", subject, to);
-        return { ok: false, skipped: true };
-    }
-
-    await mailer.sendMail({
-        from: `"${FROM_NAME}" <${FROM_EMAIL}>`,
-        to,
-        subject,
-        text,
-        html,
-    });
-
-    return { ok: true };
+async function sendMail({ to, subject }) {
+    console.warn("[MAIL_DISABLED]", subject, to);
+    return { ok: false, skipped: true };
 }
 
 async function sendTemporaryPasswordEmail({ to, fullName, temporaryPassword }) {

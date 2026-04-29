@@ -121,9 +121,6 @@ function reportLocationSource(report) {
 }
 
 function publicBaseUrl(req) {
-    const configured = process.env.BACKEND_PUBLIC_URL || process.env.API_PUBLIC_URL || process.env.NEXT_PUBLIC_BACKEND_URL;
-    if (configured) return configured.replace(/\/$/, "");
-
     const protocol = req.headers["x-forwarded-proto"] || req.protocol || "http";
     const host = req.headers["x-forwarded-host"] || req.get("host");
     return host ? `${protocol}://${host}` : "";
@@ -230,6 +227,384 @@ async function replaceReportMedia(reportId, { type, buffer, mime, filename }) {
         },
         select: mediaSelect,
     });
+}
+
+function buildExternalDataContext(report, body = {}) {
+    const location = reportLocationSource(report);
+    const propertyDetails = {
+        ...(report.propertyDetails || {}),
+        ...(body.propertyDetails || {}),
+    };
+    const buildingDetails = {
+        ...(report.buildingDetails || {}),
+        ...(body.buildingDetails || {}),
+    };
+
+    const comparableCriteria = {
+        city: cleanString(body.city ?? location.city ?? ""),
+        district: cleanString(body.district ?? location.district ?? ""),
+        neighborhood: cleanString(body.neighborhood ?? location.neighborhood ?? ""),
+        propertyType: cleanString(body.propertyType ?? buildingDetails.propertyType ?? ""),
+        reportType: cleanString(body.reportType ?? location.reportType ?? report.reportType ?? ""),
+        valuationType: valuationTypeValue(body.valuationType, body.comparablesJson?.valuationType, report.comparablesJson?.valuationType),
+    };
+    const parcelCriteria = {
+        city: cleanString(body.tkgmCity ?? location.tkgmCity ?? comparableCriteria.city),
+        district: cleanString(body.tkgmDistrict ?? location.tkgmDistrict ?? comparableCriteria.district),
+        neighborhood: cleanString(body.tkgmNeighborhood ?? location.tkgmNeighborhood ?? comparableCriteria.neighborhood),
+        blockNo: cleanString(body.blockNo ?? location.blockNo ?? ""),
+        parcelNo: cleanString(body.parcelNo ?? location.parcelNo ?? ""),
+    };
+
+    let subjectArea =
+        toNum(body.subjectArea) ??
+        toNum(propertyDetails.netArea) ??
+        toNum(propertyDetails.grossArea) ??
+        toNum(body.landArea) ??
+        toNum(location.landArea) ??
+        null;
+    const comparableCategory = propertyCategory(comparableCriteria);
+    const subjectRoomText =
+        comparableCategory === "residential" && propertyDetails.roomCount !== undefined && propertyDetails.roomCount !== null
+            ? `${propertyDetails.roomCount}${propertyDetails.salonCount !== undefined && propertyDetails.salonCount !== null ? `+${propertyDetails.salonCount}` : ""}`
+            : null;
+
+    return {
+        location,
+        propertyDetails,
+        buildingDetails,
+        comparableCriteria,
+        parcelCriteria,
+        subjectArea,
+        comparableCategory,
+        subjectRoomText,
+    };
+}
+
+function hasParcelCriteria(parcelCriteria = {}) {
+    return Boolean(parcelCriteria.city && parcelCriteria.district && parcelCriteria.neighborhood && parcelCriteria.blockNo && parcelCriteria.parcelNo);
+}
+
+async function captureAndStoreParcelMap(reportId, parcelLookup, warnings = []) {
+    if (!parcelLookup) return null;
+
+    try {
+        console.log("[PARCEL_DATA] map capture start", {
+            reportId,
+            neighborhoodId: parcelLookup.neighborhoodId,
+            blockNo: parcelLookup.properties?.blockNo,
+            parcelNo: parcelLookup.properties?.parcelNo,
+        });
+
+        const mapCapture = await captureParcelMapImage(parcelLookup, { reportId });
+        if (!mapCapture?.buffer) {
+            warnings.push("TKGM harita görüntüsü alınamadı: görüntü servisi boş döndü.");
+            console.warn("[PARCEL_DATA] map capture empty", { reportId });
+            return null;
+        }
+
+        const mapMedia = await replaceReportMedia(reportId, {
+            type: "MAP_IMAGE",
+            buffer: mapCapture.buffer,
+            mime: mapCapture.mime,
+            filename: mapCapture.filename,
+        });
+
+        console.log("[PARCEL_DATA] map capture stored", {
+            reportId,
+            mediaId: mapMedia?.id,
+            sourceUrl: mapCapture.sourceUrl,
+        });
+
+        return {
+            mapMedia,
+            sourceUrl: mapCapture.sourceUrl || null,
+        };
+    } catch (error) {
+        const message = `TKGM harita görüntüsü alınamadı: ${String(error.message || error)}`;
+        warnings.push(message);
+        console.warn("[PARCEL_DATA] map capture failed", { reportId, message });
+        return null;
+    }
+}
+
+async function updateParcelDataForReport(report, body = {}, { requireInputs = false } = {}) {
+    const reportId = report.id;
+    const warnings = [];
+    const context = buildExternalDataContext(report, body);
+
+    console.log("[PARCEL_DATA] start", {
+        reportId,
+        city: context.parcelCriteria.city,
+        district: context.parcelCriteria.district,
+        neighborhood: context.parcelCriteria.neighborhood,
+        blockNo: context.parcelCriteria.blockNo,
+        parcelNo: context.parcelCriteria.parcelNo,
+    });
+
+    if (!hasParcelCriteria(context.parcelCriteria)) {
+        const message = "TKGM parsel sorgusu için il, ilçe, mahalle, ada ve parsel bilgileri eksiksiz olmalı.";
+        console.warn("[PARCEL_DATA] missing inputs", { reportId });
+        if (requireInputs) throw badRequest(message);
+        warnings.push(message);
+        return {
+            parcelLookup: report.comparablesJson?.parcelLookup || null,
+            mapMedia: null,
+            landArea: null,
+            warnings,
+        };
+    }
+
+    let parcelLookup = null;
+    try {
+        parcelLookup = await fetchParcelLookup(context.parcelCriteria);
+        if (parcelLookup) {
+            parcelLookup.sourceUrl = buildParcelHashUrl(parcelLookup);
+            context.subjectArea = context.subjectArea ?? toNum(parcelLookup?.properties?.area);
+        }
+        console.log("[PARCEL_DATA] lookup success", {
+            reportId,
+            hasPolygon: Boolean(parcelLookup?.polygon?.length),
+            area: parcelLookup?.properties?.area || null,
+            sourceUrl: parcelLookup?.sourceUrl || null,
+        });
+    } catch (error) {
+        const message = String(error.message || error);
+        warnings.push(message);
+        console.warn("[PARCEL_DATA] lookup failed", { reportId, message });
+        if (requireInputs) throw badRequest(message);
+    }
+
+    let mapMedia = null;
+    if (parcelLookup) {
+        const capture = await captureAndStoreParcelMap(reportId, parcelLookup, warnings);
+        mapMedia = capture?.mapMedia || null;
+        if (capture?.sourceUrl) {
+            parcelLookup = {
+                ...parcelLookup,
+                sourceUrl: capture.sourceUrl,
+            };
+        }
+    }
+
+    const inferredLandArea =
+        context.comparableCategory === "land" && context.subjectArea && context.subjectArea > 0
+            ? context.subjectArea
+            : null;
+
+    const nextComparablesJson = {
+        ...(report.comparablesJson || {}),
+        ...(body.comparablesJson || {}),
+        ...(parcelLookup ? { parcelLookup } : {}),
+        parcelDataUpdatedAt: new Date().toISOString(),
+        externalDataUpdatedAt: new Date().toISOString(),
+    };
+
+    await prisma.report.update({
+        where: { id: reportId },
+        data: {
+            ...(inferredLandArea && !toNum(context.location.landArea) ? { landArea: inferredLandArea } : {}),
+            comparablesJson: nextComparablesJson,
+        },
+    });
+
+    console.log("[PARCEL_DATA] finish", {
+        reportId,
+        hasParcelLookup: Boolean(parcelLookup),
+        hasMapMedia: Boolean(mapMedia),
+        warnings: warnings.length,
+    });
+
+    return {
+        parcelLookup,
+        mapMedia,
+        landArea: inferredLandArea,
+        warnings,
+    };
+}
+
+async function updateComparableDataForReport(req, report, body = {}) {
+    const reportId = report.id;
+    const warnings = [];
+    const context = buildExternalDataContext(report, body);
+    let parcelLookup = body.comparablesJson?.parcelLookup || report.comparablesJson?.parcelLookup || null;
+
+    console.log("[COMPARABLE_DATA] start", {
+        reportId,
+        city: context.comparableCriteria.city,
+        district: context.comparableCriteria.district,
+        neighborhood: context.comparableCriteria.neighborhood,
+        reportType: context.comparableCriteria.reportType,
+        propertyType: context.comparableCriteria.propertyType,
+        valuationType: context.comparableCriteria.valuationType,
+    });
+
+    let bundle = null;
+    if (context.comparableCriteria.city && context.comparableCriteria.district) {
+        try {
+            bundle = await fetchComparableBundle(context.comparableCriteria, {
+                parcelLookup,
+                subjectPoint: parcelLookup?.center || null,
+                subjectArea: context.subjectArea,
+                subjectRoomText: context.subjectRoomText,
+            });
+
+            if (Array.isArray(bundle?.warnings) && bundle.warnings.length) {
+                warnings.push(...bundle.warnings);
+            }
+        } catch (error) {
+            const message = String(error.message || error);
+            warnings.push(message);
+            console.warn("[COMPARABLE_DATA] search failed", { reportId, message });
+        }
+    } else {
+        warnings.push("Emsal araması için il ve ilçe bilgisi gerekli.");
+    }
+
+    if (Array.isArray(bundle?.comparables) && bundle.comparables.length > 0) {
+        try {
+            console.log("[COMPARABLE_DATA] image enrichment start", {
+                reportId,
+                count: bundle.comparables.length,
+            });
+
+            const imageEnrichment = await enrichComparableImages(bundle.comparables, {
+                subjectLocation: {
+                    city: context.comparableCriteria.city,
+                    district: context.comparableCriteria.district,
+                    neighborhood: context.comparableCriteria.neighborhood,
+                    reportType: context.comparableCriteria.reportType,
+                    propertyType: context.comparableCriteria.propertyType,
+                    address: context.location.addressText,
+                },
+                baseUrl: publicBaseUrl(req),
+            });
+
+            bundle = {
+                ...bundle,
+                comparables: imageEnrichment.comparables,
+                sourceMeta: {
+                    ...(bundle.sourceMeta || {}),
+                    enrichment: imageEnrichment.sourceMeta,
+                },
+            };
+
+            console.log("[COMPARABLE_DATA] image enrichment finish", {
+                reportId,
+                count: bundle.comparables.length,
+                source: imageEnrichment.sourceMeta?.provider || imageEnrichment.sourceMeta?.source || null,
+            });
+        } catch (error) {
+            warnings.push(`Emsal görselleri zenginleştirilemedi: ${String(error.message || error)}`);
+        }
+    }
+
+    const hasComparables = Array.isArray(bundle?.comparables) && bundle.comparables.length > 0;
+    const existingComparables = Array.isArray(report.comparablesJson?.comparables)
+        ? report.comparablesJson.comparables
+        : [];
+
+    if (!hasComparables && existingComparables.length) {
+        warnings.push("Yeni emsal bulunamadı, varsa önceki emsaller korunmuştur.");
+    }
+
+    const nextComparablesJson = {
+        ...(report.comparablesJson || {}),
+        ...(body.comparablesJson || {}),
+        valuationType: context.comparableCriteria.valuationType,
+        ...(parcelLookup ? { parcelLookup } : {}),
+        ...(hasComparables
+            ? {
+                  comparables: bundle.comparables,
+                  groups: bundle.groups,
+                  comparableSource: bundle.sourceMeta,
+                  remaxSource:
+                      bundle.sourceMeta?.provider === "RE/MAX" || bundle.sourceMeta?.providers?.includes("RE/MAX")
+                          ? bundle.sourceMeta
+                          : report.comparablesJson?.remaxSource || null,
+                  hepsiemlakSource:
+                      bundle.sourceMeta?.provider === "HEPSIEMLAK_HTML" || bundle.sourceMeta?.providers?.includes("HEPSIEMLAK_HTML")
+                          ? bundle.sourceMeta
+                          : report.comparablesJson?.hepsiemlakSource || null,
+                  serpSnippetSource:
+                      bundle.sourceMeta?.provider === "SERP_SNIPPET" || bundle.sourceMeta?.providers?.includes("SERP_SNIPPET")
+                          ? bundle.sourceMeta
+                          : report.comparablesJson?.serpSnippetSource || null,
+              }
+            : {
+                  comparables: existingComparables,
+                  groups: report.comparablesJson?.groups || null,
+              }),
+        comparableDataUpdatedAt: new Date().toISOString(),
+        externalDataUpdatedAt: new Date().toISOString(),
+    };
+
+    const policyPriceBand = hasComparables && bundle?.priceBand
+        ? applyValuationPolicy(bundle.priceBand, context.subjectArea, context.comparableCriteria.valuationType)
+        : null;
+    const inferredLandArea =
+        context.comparableCategory === "land" && context.subjectArea && context.subjectArea > 0
+            ? context.subjectArea
+            : null;
+
+    const pricingUpdate = policyPriceBand
+        ? {
+              minPrice: policyPriceBand.minPrice,
+              expectedPrice: policyPriceBand.expectedPrice,
+              maxPrice: policyPriceBand.maxPrice,
+              minPricePerSqm: policyPriceBand.minPricePerSqm,
+              expectedPricePerSqm: policyPriceBand.expectedPricePerSqm,
+              maxPricePerSqm: policyPriceBand.maxPricePerSqm,
+              confidence: policyPriceBand.confidence,
+              note: report.pricingAnalysis?.note || policyPriceBand.note,
+              aiJson: {
+                  ...(report.pricingAnalysis?.aiJson || {}),
+                  saleStrategy: policyPriceBand.saleStrategy,
+                  valuationPolicy: policyPriceBand.valuationPolicy,
+                  rentalEstimate: policyPriceBand.rentalEstimate || null,
+                  valuationType: context.comparableCriteria.valuationType,
+                  sourcePriceBand: bundle.priceBand,
+              },
+          }
+        : null;
+
+    await prisma.report.update({
+        where: { id: reportId },
+        data: {
+            ...(inferredLandArea && !toNum(context.location.landArea) ? { landArea: inferredLandArea } : {}),
+            comparablesJson: nextComparablesJson,
+            ...(hasComparables && bundle?.marketProjection ? { marketProjectionJson: bundle.marketProjection } : {}),
+            ...(pricingUpdate
+                ? {
+                      pricingAnalysis: {
+                          upsert: {
+                              create: pricingUpdate,
+                              update: pricingUpdate,
+                          },
+                      },
+                  }
+                : {}),
+        },
+    });
+
+    console.log("[COMPARABLE_DATA] finish", {
+        reportId,
+        count: nextComparablesJson.comparables?.length || 0,
+        provider: bundle?.sourceMeta?.provider || null,
+        warnings: warnings.length,
+    });
+
+    return {
+        comparables: nextComparablesJson.comparables || [],
+        groups: nextComparablesJson.groups || null,
+        parcelLookup: nextComparablesJson.parcelLookup || null,
+        marketProjection: hasComparables ? bundle?.marketProjection || null : report.marketProjectionJson || null,
+        regionalStats: null,
+        landArea: inferredLandArea,
+        pricingAnalysis: pricingUpdate || report.pricingAnalysis || null,
+        sourceMeta: bundle?.sourceMeta || nextComparablesJson.comparableSource || null,
+        warnings,
+    };
 }
 
 
@@ -532,6 +907,22 @@ export const updateReport = async (req, res) => {
     });
 
     res.json(updated);
+};
+
+export const autofillParcelData = async (req, res) => {
+    const userId = req.user.userId;
+    const reportId = req.params.id;
+    const report = await findReport(userId, reportId);
+    const result = await updateParcelDataForReport(report, req.body || {}, { requireInputs: true });
+    res.json(result);
+};
+
+export const autofillComparableData = async (req, res) => {
+    const userId = req.user.userId;
+    const reportId = req.params.id;
+    const report = await findReport(userId, reportId);
+    const result = await updateComparableDataForReport(req, report, req.body || {});
+    res.json(result);
 };
 
 export const autofillExternalData = async (req, res) => {

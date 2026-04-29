@@ -42,14 +42,10 @@ function planForUser(user = {}) {
     return PLAN_DEFINITIONS[user.subscriptionPlan] || PLAN_DEFINITIONS[DEFAULT_PLAN];
 }
 
-function paymentUrlForPlan(key) {
-    return process.env[`${key}_PAYMENT_URL`] || null;
-}
-
 function publicPlans() {
     return Object.values(PLAN_DEFINITIONS).map((plan) => ({
         ...plan,
-        paymentUrl: plan.key === "FREE" ? null : paymentUrlForPlan(plan.key),
+        paymentUrl: null,
     }));
 }
 
