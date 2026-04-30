@@ -19,7 +19,7 @@ function toNumber(value) {
 }
 
 function comparableKey(item) {
-    return item?.externalId || item?.sourceUrl || `${item?.title || ""}:${item?.price || ""}:${item?.netArea || item?.grossArea || ""}`;
+    return item?.sourceUrl || item?.externalId || `${item?.title || ""}:${item?.price || ""}:${item?.netArea || item?.grossArea || ""}`;
 }
 
 function comparableArea(item) {

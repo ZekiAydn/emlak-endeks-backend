@@ -1,5 +1,4 @@
-import { fetchRemaxProviderBundle } from "./remaxProvider.js";
-import { fetchHepsiemlakHtmlComparableBundle } from "./hepsiemlakHtmlProvider.js";
+import { fetchApifyEmlakjetComparableBundle } from "./apifyEmlakjetProvider.js";
 import { fetchSerpSnippetComparableBundle } from "./serpSnippetProvider.js";
 import {
     PROVIDER_TIMEOUT_MS,
@@ -18,13 +17,9 @@ import {
 } from "../comparableCache.js";
 
 const PROVIDERS = {
-    HEPSIEMLAK_HTML: {
-        name: "HEPSIEMLAK_HTML",
-        fetch: fetchHepsiemlakHtmlComparableBundle,
-    },
-    REMAX: {
-        name: "REMAX",
-        fetch: fetchRemaxProviderBundle,
+    APIFY_EMLAKJET: {
+        name: "APIFY_EMLAKJET",
+        fetch: fetchApifyEmlakjetComparableBundle,
     },
     SERP_SNIPPET: {
         name: "SERP_SNIPPET",
@@ -83,7 +78,7 @@ function buildMarketProjection(comparables = [], rawCount = null) {
 }
 
 function selectedProviders() {
-    const raw = "HEPSIEMLAK_HTML,REMAX,SERP_SNIPPET";
+    const raw = process.env.COMPARABLE_PROVIDERS || "APIFY_EMLAKJET,SERP_SNIPPET";
     const keys = raw
         .split(",")
         .map((item) => item.trim().toUpperCase())

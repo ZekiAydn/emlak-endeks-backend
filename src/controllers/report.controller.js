@@ -631,14 +631,10 @@ async function updateComparableDataForReport(req, report, body = {}) {
                   comparables: bundle.comparables,
                   groups: bundle.groups,
                   comparableSource: bundle.sourceMeta,
-                  remaxSource:
-                      bundle.sourceMeta?.provider === "RE/MAX" || bundle.sourceMeta?.providers?.includes("RE/MAX")
+                  apifyEmlakjetSource:
+                      bundle.sourceMeta?.provider === "APIFY_EMLAKJET" || bundle.sourceMeta?.providers?.includes("APIFY_EMLAKJET")
                           ? bundle.sourceMeta
-                          : report.comparablesJson?.remaxSource || null,
-                  hepsiemlakSource:
-                      bundle.sourceMeta?.provider === "HEPSIEMLAK_HTML" || bundle.sourceMeta?.providers?.includes("HEPSIEMLAK_HTML")
-                          ? bundle.sourceMeta
-                          : report.comparablesJson?.hepsiemlakSource || null,
+                          : report.comparablesJson?.apifyEmlakjetSource || null,
                   serpSnippetSource:
                       bundle.sourceMeta?.provider === "SERP_SNIPPET" || bundle.sourceMeta?.providers?.includes("SERP_SNIPPET")
                           ? bundle.sourceMeta
@@ -1212,13 +1208,12 @@ export const autofillExternalData = async (req, res) => {
                   comparables: bundle.comparables,
                   groups: bundle.groups,
                   comparableSource: bundle.sourceMeta,
-                  remaxSource: bundle.sourceMeta?.provider === "REMAX" ? bundle.sourceMeta : report.comparablesJson?.remaxSource || null,
-                  hepsiemlakSource:
-                      bundle.sourceMeta?.provider === "HEPSIEMLAK_HTML"
+                  apifyEmlakjetSource:
+                      bundle.sourceMeta?.provider === "APIFY_EMLAKJET" || bundle.sourceMeta?.providers?.includes("APIFY_EMLAKJET")
                           ? bundle.sourceMeta
-                          : report.comparablesJson?.hepsiemlakSource || null,
+                          : report.comparablesJson?.apifyEmlakjetSource || null,
                   serpSnippetSource:
-                      bundle.sourceMeta?.provider === "SERP_SNIPPET"
+                      bundle.sourceMeta?.provider === "SERP_SNIPPET" || bundle.sourceMeta?.providers?.includes("SERP_SNIPPET")
                           ? bundle.sourceMeta
                           : report.comparablesJson?.serpSnippetSource || null,
               }

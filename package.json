@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
+    "apify:test": "node scripts/test-apify-comparables.js",
     "postinstall": "npx playwright install --with-deps chromium",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy",
