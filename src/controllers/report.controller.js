@@ -19,6 +19,7 @@ import { saveComparableListings } from "../services/comparableCache.js";
 import { propertyCategory } from "../services/propertyCategory.js";
 import { applyValuationPolicy } from "../services/valuationPolicy.js";
 import { quantile, selectValuationComparables } from "../services/comparablePolicy.js";
+import { buildLocationInsights } from "../services/locationInsights.js";
 
 
 const mediaSelect = {
@@ -379,6 +380,35 @@ async function captureAndStoreParcelMap(reportId, parcelLookup, warnings = []) {
     }
 }
 
+async function buildRegionalStatsForReport(report, context, parcelLookup, warnings = []) {
+    const location = {
+        city: cleanString(context.comparableCriteria?.city || context.parcelCriteria?.city || context.location?.city || ""),
+        district: cleanString(context.comparableCriteria?.district || context.parcelCriteria?.district || context.location?.district || ""),
+        neighborhood: cleanString(context.comparableCriteria?.neighborhood || context.parcelCriteria?.neighborhood || context.location?.neighborhood || ""),
+    };
+
+    if (!parcelLookup && !location.city && !location.district) {
+        return report.regionalStatsJson || null;
+    }
+
+    try {
+        const regionalStats = await buildLocationInsights({
+            location,
+            criteria: context.parcelCriteria || context.comparableCriteria || {},
+            parcelLookup,
+        });
+
+        if (Array.isArray(regionalStats?.warnings) && regionalStats.warnings.length) {
+            warnings.push(...regionalStats.warnings.map((warning) => `Konum analizi: ${warning}`));
+        }
+
+        return regionalStats;
+    } catch (error) {
+        warnings.push(`Konum analizi üretilemedi: ${String(error.message || error)}`);
+        return report.regionalStatsJson || null;
+    }
+}
+
 async function updateParcelDataForReport(report, body = {}, { requireInputs = false } = {}) {
     const reportId = report.id;
     const warnings = [];
@@ -455,12 +485,14 @@ async function updateParcelDataForReport(report, body = {}, { requireInputs = fa
         parcelDataUpdatedAt: new Date().toISOString(),
         externalDataUpdatedAt: new Date().toISOString(),
     };
+    const regionalStats = await buildRegionalStatsForReport(report, context, nextComparablesJson.parcelLookup || parcelLookup, warnings);
 
     await prisma.report.update({
         where: { id: reportId },
         data: {
             ...(inferredLandArea && !toNum(context.location.landArea) ? { landArea: inferredLandArea } : {}),
             comparablesJson: nextComparablesJson,
+            regionalStatsJson: regionalStats,
         },
     });
 
@@ -474,6 +506,7 @@ async function updateParcelDataForReport(report, body = {}, { requireInputs = fa
     return {
         parcelLookup,
         mapMedia,
+        regionalStats,
         landArea: inferredLandArea,
         warnings,
     };
@@ -651,6 +684,7 @@ async function updateComparableDataForReport(req, report, body = {}) {
               },
           }
         : null;
+    const regionalStats = await buildRegionalStatsForReport(report, context, nextComparablesJson.parcelLookup || parcelLookup, warnings);
 
     await prisma.report.update({
         where: { id: reportId },
@@ -658,6 +692,7 @@ async function updateComparableDataForReport(req, report, body = {}) {
             ...(inferredLandArea && !toNum(context.location.landArea) ? { landArea: inferredLandArea } : {}),
             comparablesJson: nextComparablesJson,
             ...(hasComparables && bundle?.marketProjection ? { marketProjectionJson: bundle.marketProjection } : {}),
+            regionalStatsJson: regionalStats,
             ...(pricingUpdate
                 ? {
                       pricingAnalysis: {
@@ -683,7 +718,7 @@ async function updateComparableDataForReport(req, report, body = {}) {
         groups: nextComparablesJson.groups || null,
         parcelLookup: nextComparablesJson.parcelLookup || null,
         marketProjection: hasComparables ? bundle?.marketProjection || null : report.marketProjectionJson || null,
-        regionalStats: null,
+        regionalStats,
         landArea: inferredLandArea,
         pricingAnalysis: pricingUpdate || report.pricingAnalysis || null,
         sourceMeta: bundle?.sourceMeta || nextComparablesJson.comparableSource || null,
@@ -1246,6 +1281,16 @@ export const autofillExternalData = async (req, res) => {
               },
           }
         : null;
+    const regionalStats = await buildRegionalStatsForReport(
+        report,
+        {
+            location,
+            comparableCriteria: remaxCriteria,
+            parcelCriteria,
+        },
+        nextComparablesJson.parcelLookup || parcelLookup,
+        warnings
+    );
 
     await prisma.report.update({
         where: { id: reportId },
@@ -1253,6 +1298,7 @@ export const autofillExternalData = async (req, res) => {
             ...(inferredLandArea && !toNum(location.landArea) ? { landArea: inferredLandArea } : {}),
             comparablesJson: nextComparablesJson,
             ...(hasComparables && bundle?.marketProjection ? { marketProjectionJson: bundle.marketProjection } : {}),
+            regionalStatsJson: regionalStats,
             ...(pricingUpdate
                 ? {
                       pricingAnalysis: {
@@ -1271,11 +1317,53 @@ export const autofillExternalData = async (req, res) => {
         groups: nextComparablesJson.groups || null,
         parcelLookup: nextComparablesJson.parcelLookup || null,
         marketProjection: hasComparables ? bundle?.marketProjection || null : report.marketProjectionJson || null,
-        regionalStats: null,
+        regionalStats,
         landArea: inferredLandArea,
         pricingAnalysis: pricingUpdate || report.pricingAnalysis || null,
         sourceMeta: bundle?.sourceMeta || nextComparablesJson.comparableSource || null,
         mapMedia,
+        warnings,
+    });
+};
+
+export const autofillLocationInsights = async (req, res) => {
+    const userId = req.user.userId;
+    const reportId = req.params.id;
+    const body = req.body || {};
+    const report = await findReport(userId, reportId);
+    const context = buildExternalDataContext(report, body);
+    const warnings = [];
+
+    let parcelLookup = body.parcelLookup || body.comparablesJson?.parcelLookup || report.comparablesJson?.parcelLookup || null;
+    if (!parcelLookup && hasParcelCriteria(context.parcelCriteria)) {
+        try {
+            parcelLookup = await fetchParcelLookup(context.parcelCriteria);
+            if (parcelLookup) parcelLookup.sourceUrl = buildParcelHashUrl(parcelLookup);
+        } catch (error) {
+            warnings.push(`TKGM parsel sorgusu başarısız: ${String(error.message || error)}`);
+        }
+    }
+
+    const regionalStats = await buildRegionalStatsForReport(report, context, parcelLookup, warnings);
+    const nextComparablesJson = {
+        ...(report.comparablesJson || {}),
+        ...(body.comparablesJson || {}),
+        ...(parcelLookup ? { parcelLookup } : {}),
+        locationInsightsUpdatedAt: new Date().toISOString(),
+        externalDataUpdatedAt: new Date().toISOString(),
+    };
+
+    await prisma.report.update({
+        where: { id: reportId },
+        data: {
+            regionalStatsJson: regionalStats,
+            comparablesJson: nextComparablesJson,
+        },
+    });
+
+    res.json({
+        regionalStats,
+        parcelLookup,
         warnings,
     });
 };
@@ -1305,6 +1393,7 @@ export const aiPriceIndex = async (req, res) => {
         ...(report.propertyDetails || {}),
         ...(body.propertyDetails || {}),
     };
+    const regionalStats = body.regionalStatsJson || body.regionalStats || report.regionalStatsJson || null;
 
     const buildingDetails = {
         ...(report.buildingDetails || {}),
@@ -1378,6 +1467,15 @@ export const aiPriceIndex = async (req, res) => {
             buildingCondition: buildingDetails.buildingCondition ?? null,
         },
         comparables: userComparables,
+        locationInsights: regionalStats
+            ? {
+                  summarySections: regionalStats.summarySections || null,
+                  locationScore: regionalStats.locationScore || null,
+                  poiSummary: regionalStats.poiSummary || regionalStats.nearbyPlacesSummary || null,
+                  transitSummary: regionalStats.transitSummary || regionalStats.saleMarketSummary || null,
+                  neighborhoodProfileSummary: regionalStats.neighborhoodProfileSummary || regionalStats.demographicsSummary || null,
+              }
+            : null,
         valuationType,
     };
 
@@ -1475,7 +1573,7 @@ export const aiPriceIndex = async (req, res) => {
         where: { id: reportId },
         data: {
             marketProjectionJson: normalized.marketProjection || null,
-            regionalStatsJson: null,
+            regionalStatsJson: regionalStats,
             pricingAnalysis: {
                 upsert: {
                     create: {
@@ -1519,7 +1617,7 @@ export const aiPriceIndex = async (req, res) => {
 
     res.json({
         ...normalized,
-        regionalStats: null,
+        regionalStats,
         aiNote: note,
         needsUserApproval: true,
         reviewMode: "USER_CONTROLLED",
