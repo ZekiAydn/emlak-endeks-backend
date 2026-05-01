@@ -27,24 +27,43 @@ const PROVIDERS = {
     },
 };
 
-function buildPriceBand(comparables = [], subjectArea = null) {
+function buildPriceBand(comparables = [], subjectArea = null, options = {}) {
     const area = toNumber(subjectArea);
     const unitPrices = comparables.map(comparableUnitPrice).filter(Number.isFinite);
     const prices = comparables.map((item) => toNumber(item?.price)).filter(Number.isFinite);
+    const canUseAbsoluteGuard = options.propertyCategory !== "land" && prices.length >= 3;
 
     if (area && area > 0 && unitPrices.length >= 3) {
         const minPricePerSqm = Math.round(quantile(unitPrices, 0.2));
         const expectedPricePerSqm = Math.round(quantile(unitPrices, 0.5));
         const maxPricePerSqm = Math.round(quantile(unitPrices, 0.8));
+        const unitMinPrice = Math.round(minPricePerSqm * area);
+        const unitExpectedPrice = Math.round(expectedPricePerSqm * area);
+        const unitMaxPrice = Math.round(maxPricePerSqm * area);
+        const absoluteMinGuard = canUseAbsoluteGuard ? Math.round(quantile(prices, 0.2) * 0.92) : null;
+        const absoluteExpectedGuard = canUseAbsoluteGuard ? Math.round(quantile(prices, 0.5) * 0.96) : null;
+        const absoluteMaxGuard = canUseAbsoluteGuard ? Math.round(quantile(prices, 0.8)) : null;
+        const minPrice = absoluteMinGuard ? Math.max(unitMinPrice, absoluteMinGuard) : unitMinPrice;
+        const expectedPrice = absoluteExpectedGuard ? Math.max(unitExpectedPrice, absoluteExpectedGuard, minPrice) : Math.max(unitExpectedPrice, minPrice);
+        const maxPrice = absoluteMaxGuard ? Math.max(unitMaxPrice, absoluteMaxGuard, expectedPrice) : Math.max(unitMaxPrice, expectedPrice);
+
         return {
             minPricePerSqm,
             expectedPricePerSqm,
             maxPricePerSqm,
-            minPrice: Math.round(minPricePerSqm * area),
-            expectedPrice: Math.round(expectedPricePerSqm * area),
-            maxPrice: Math.round(maxPricePerSqm * area),
+            minPrice,
+            expectedPrice,
+            maxPrice,
             confidence: Math.min(0.66, 0.38 + unitPrices.length * 0.012),
             note: `${comparables.length} konuya yakın otomatik emsal üzerinden hesaplanan fiyat bandıdır.`,
+            comparablePriceGuard: absoluteMinGuard
+                ? {
+                      minPrice: absoluteMinGuard,
+                      expectedPrice: absoluteExpectedGuard,
+                      maxPrice: absoluteMaxGuard,
+                      note: "Konut emsallerinde birim m² normalizasyonunun toplam fiyatı emsal havuzunun altına aşırı çekmemesi için mutlak emsal fiyat tabanı uygulanmıştır.",
+                  }
+                : null,
         };
     }
 
@@ -140,6 +159,8 @@ function mergeProviderBundles(partialBundles = [], warnings = [], options = {}) 
     const portfolio = selectPortfolioGroups(allComparables, {
         subjectArea: options.subjectArea,
         subjectRoomText: options.subjectRoomText,
+        subjectBuildingAge: options.subjectBuildingAge,
+        propertyCategory: options.propertyCategory,
     });
     const providers = partialBundles.map((bundle) => bundle.sourceMeta?.provider).filter(Boolean);
     const cacheCount = partialBundles
@@ -152,7 +173,7 @@ function mergeProviderBundles(partialBundles = [], warnings = [], options = {}) 
         groups: portfolio.groups,
         marketProjection: buildMarketProjection(portfolio.comparables, portfolio.diagnostics.rawCount),
         regionalStats: null,
-        priceBand: buildPriceBand(valuationComparables, options.subjectArea),
+        priceBand: buildPriceBand(valuationComparables, options.subjectArea, options),
         warnings,
         sourceMeta: {
             provider: providers.length > 1 ? "MIXED" : providers[0] || "NONE",

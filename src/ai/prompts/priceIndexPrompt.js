@@ -15,6 +15,7 @@ GİRDİ:
 Kullanıcı "adresText", "valuationType" (SALE veya RENTAL), konut/ticari/arsa ve bina/imar özelliklerini verir.
 Opsiyonel olarak "comparables" alanında kullanıcı emsalleri verir.
 Opsiyonel olarak "locationInsights" alanında POI, ulaşım, konum skoru ve mahalle nüfus özeti gelebilir.
+Opsiyonel olarak "valuationSettings" alanında admin tarafından belirlenen inşaat maliyeti, müteahhit payı ve yıllık enflasyon oranı gelebilir.
 Resmi veri biliyormuş gibi davranma, kaynak uydurma, kesin sayı uydurma.
 
 KULLANICI EMSALİ YOKSA (comparables boşsa):
@@ -68,8 +69,9 @@ HESAPLAMA NOTU:
 - m² fiyatını netArea varsa netArea, yoksa grossArea, arsa raporunda landArea üzerinden hesapla.
 - valuationType RENTAL ise minPrice/avgPrice/maxPrice alanlarını aylık kira bedeli olarak düşün; SALE ise satış bedeli olarak düşün.
 - avgPrice "ortalama/beklenen" fiyat veya aylık kira gibi düşün.
-- SALE için minPrice taban satış değeri gibi düşün; sistem avgPrice değerini minPrice * 1,15 ve maxPrice değerini minPrice * 1,30 olarak politika katmanında yeniden hizalar.
-- SALE için minPrice ile maxPrice arasındaki fark %30'u geçmemeli.
+- SALE için minPrice taban satış değeri gibi düşün; sistem avgPrice/maxPrice değerlerini admin yıllık enflasyon oranına göre politika katmanında yeniden hizalar.
+- SALE için minPrice ile maxPrice arasındaki fark admin yıllık enflasyon oranını geçmemeli.
+- 0-5 yaş yeni konutlarda valuationSettings varsa maliyet tabanını göz ardı etme: efektif m² maliyeti = constructionCostPerSqm / (contractorSharePct / 100). Emsal tabanı bunun çok altına düşüyorsa minPrice maliyet tabanına yakın olmalı.
 - Konutta site içerisinde olma, kapalı havuz ve fitness/spor alanı birlikte varsa emsal tabanlı değeri yaklaşık %10-%15 yukarı konumlandır; bu özelliklerin tamamı yoksa daha sınırlı ve kontrollü etki ver.
 - locationInsights varsa bunu emsalin yerine koyma. Raylı sistem, otobüs, okul, market, eczane ve konum skoru fiyat bandında agresif prim değil likidite/küçük düzeltme notu olarak değerlendir; güçlü konumda bile emsal bandını belirgin aşma.
 - Konutta bina yaşı düzeltmesi yap: yaklaşık 5 yaşta %10, 10 yaşta %20, 15 yaşta %25-%30, 20 yaşta %30-%35, 25 yaşta %40+, 30 yaş ve üzeri binalarda yeni bina emsallerine göre %45-%55 aşağı değerleme düşün.

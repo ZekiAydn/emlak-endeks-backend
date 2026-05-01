@@ -5,6 +5,7 @@ import authRequired from "../middleware/authRequired.js";
 import requireRole from "../middleware/requireRole.js";
 import { badRequest, conflict, notFound } from "../utils/errors.js";
 import { PLAN_DEFINITIONS } from "../services/subscriptionPlans.js";
+import { getValuationSettings, updateValuationSettings } from "../services/valuationSettings.js";
 import {
     normalizeUsername,
     normalizeOptionalEmail,
@@ -20,6 +21,14 @@ import {
 const router = Router();
 
 router.use(authRequired, requireRole("ADMIN"));
+
+router.get("/valuation-settings", async (_req, res) => {
+    res.json(await getValuationSettings());
+});
+
+router.put("/valuation-settings", async (req, res) => {
+    res.json(await updateValuationSettings(req.body || {}));
+});
 
 function monthBounds(now = new Date()) {
     const year = now.getUTCFullYear();

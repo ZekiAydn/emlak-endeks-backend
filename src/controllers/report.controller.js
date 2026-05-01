@@ -18,6 +18,7 @@ import { enrichComparableImages } from "../services/comparableImageEnrichment.js
 import { saveComparableListings } from "../services/comparableCache.js";
 import { propertyCategory } from "../services/propertyCategory.js";
 import { applyValuationPolicy } from "../services/valuationPolicy.js";
+import { getValuationSettings } from "../services/valuationSettings.js";
 import { quantile, selectValuationComparables } from "../services/comparablePolicy.js";
 import { buildLocationInsights } from "../services/locationInsights.js";
 import { buildStoredMediaData, deleteStoredMediaObject } from "../services/mediaStorage.js";
@@ -391,9 +392,10 @@ function publicPricingNote(value) {
     return text;
 }
 
-function normalizePricingAnalysisForSave(pricingAnalysis, { body = {}, report = null, propertyDetails = null, buildingDetails = null, locationData = null } = {}) {
+async function normalizePricingAnalysisForSave(pricingAnalysis, { body = {}, report = null, propertyDetails = null, buildingDetails = null, locationData = null } = {}) {
     const sanitized = sanitizePricingAnalysis(pricingAnalysis);
     if (!sanitized) return null;
+    const valuationSettings = await getValuationSettings();
 
     const location = locationData || (report ? reportLocationSource(report) : {});
     const valuationType = valuationTypeValue(
@@ -417,6 +419,9 @@ function normalizePricingAnalysisForSave(pricingAnalysis, { body = {}, report = 
 
     const normalized = applyValuationPolicy(sanitized, areaHint, valuationType, {
         propertyCategory: category,
+        propertyDetails,
+        buildingDetails,
+        valuationSettings,
         skipAmenityPremium: true,
         suppressPolicyNoteAppend: true,
     });
@@ -693,6 +698,7 @@ async function updateComparableDataForReport(req, report, body = {}) {
                 subjectPoint: parcelLookup?.center || null,
                 subjectArea: context.subjectArea,
                 subjectRoomText: context.subjectRoomText,
+                subjectBuildingAge: context.buildingDetails?.buildingAge,
                 propertyCategory: context.comparableCategory,
             });
 
@@ -809,11 +815,13 @@ async function updateComparableDataForReport(req, report, body = {}) {
         externalDataUpdatedAt: new Date().toISOString(),
     };
 
+    const valuationSettings = await getValuationSettings();
     const policyPriceBand = hasComparables && bundle?.priceBand
         ? applyValuationPolicy(bundle.priceBand, context.subjectArea, context.comparableCriteria.valuationType, {
               buildingDetails: context.buildingDetails,
               propertyDetails: context.propertyDetails,
               propertyCategory: context.comparableCategory,
+              valuationSettings,
           })
         : null;
     const inferredLandArea =
@@ -837,6 +845,7 @@ async function updateComparableDataForReport(req, report, body = {}) {
                   valuationPolicy: policyPriceBand.valuationPolicy,
                   rentalEstimate: policyPriceBand.rentalEstimate || null,
                   valuationType: context.comparableCriteria.valuationType,
+                  valuationSettings,
                   sourcePriceBand: bundle.priceBand,
               },
           }
@@ -952,7 +961,7 @@ export const createReport = async (req, res) => {
     const locationData = reportLocationData(body, property);
     const pd = sanitizePropertyDetails(body.propertyDetails);
     const bd = sanitizeBuildingDetails(body.buildingDetails);
-    const pa = normalizePricingAnalysisForSave(body.pricingAnalysis, {
+    const pa = await normalizePricingAnalysisForSave(body.pricingAnalysis, {
         body,
         propertyDetails: pd || body.propertyDetails || {},
         buildingDetails: bd || body.buildingDetails || {},
@@ -1198,7 +1207,7 @@ export const updateReport = async (req, res) => {
     const bd = sanitizeBuildingDetails(body.buildingDetails);
     if (bd) data.buildingDetails = { upsert: { create: bd, update: bd } };
 
-    const pa = normalizePricingAnalysisForSave(body.pricingAnalysis, {
+    const pa = await normalizePricingAnalysisForSave(body.pricingAnalysis, {
         body,
         report: existingReport,
         propertyDetails: {
@@ -1320,6 +1329,7 @@ export const autofillExternalData = async (req, res) => {
                 subjectPoint: parcelLookup?.center || null,
                 subjectArea,
                 subjectRoomText,
+                subjectBuildingAge: buildingDetails?.buildingAge,
                 propertyCategory: comparableCategory,
             });
 
@@ -1449,11 +1459,13 @@ export const autofillExternalData = async (req, res) => {
         }
     }
 
+    const valuationSettings = await getValuationSettings();
     const policyPriceBand = hasComparables && bundle?.priceBand
         ? applyValuationPolicy(bundle.priceBand, subjectArea, remaxCriteria.valuationType, {
               buildingDetails,
               propertyDetails,
               propertyCategory: comparableCategory,
+              valuationSettings,
           })
         : null;
     const inferredLandArea = comparableCategory === "land" && subjectArea && subjectArea > 0 ? subjectArea : null;
@@ -1474,6 +1486,7 @@ export const autofillExternalData = async (req, res) => {
                   valuationPolicy: policyPriceBand.valuationPolicy,
                   rentalEstimate: policyPriceBand.rentalEstimate || null,
                   valuationType: remaxCriteria.valuationType,
+                  valuationSettings,
                   sourcePriceBand: bundle.priceBand,
               },
           }
@@ -1617,8 +1630,10 @@ export const aiPriceIndex = async (req, res) => {
     const userComparables = selectValuationComparables(incomingComparables, {
         subjectArea: areaForSqm,
         subjectRoomText,
+        subjectBuildingAge: buildingDetails?.buildingAge,
         propertyCategory: comparableCategory,
     });
+    const valuationSettings = await getValuationSettings();
 
     const input = {
         client: {
@@ -1666,6 +1681,7 @@ export const aiPriceIndex = async (req, res) => {
             buildingCondition: buildingDetails.buildingCondition ?? null,
         },
         comparables: userComparables,
+        valuationSettings,
         locationInsights: regionalStats
             ? {
                   summarySections: regionalStats.summarySections || null,
@@ -1762,6 +1778,7 @@ export const aiPriceIndex = async (req, res) => {
             buildingDetails,
             propertyDetails,
             propertyCategory: comparableCategory,
+            valuationSettings,
             skipAmenityPremium: !hasComparableCalibration,
         }
     );
@@ -1784,7 +1801,7 @@ export const aiPriceIndex = async (req, res) => {
                         maxPricePerSqm: normalized.maxPricePerSqm,
                         confidence: normalized.confidence,
                         note,
-                        aiJson: { raw: json, rawText, normalized, saleStrategy: normalized.saleStrategy, valuationPolicy: normalized.valuationPolicy, rentalEstimate: normalized.rentalEstimate || null, valuationType, meta: { at: new Date().toISOString(), review: "USER_CONTROLLED" } },
+                        aiJson: { raw: json, rawText, normalized, saleStrategy: normalized.saleStrategy, valuationPolicy: normalized.valuationPolicy, rentalEstimate: normalized.rentalEstimate || null, valuationType, valuationSettings, meta: { at: new Date().toISOString(), review: "USER_CONTROLLED" } },
                     },
                     update: {
                         minPrice: normalized.minPrice,
@@ -1795,7 +1812,7 @@ export const aiPriceIndex = async (req, res) => {
                         maxPricePerSqm: normalized.maxPricePerSqm,
                         confidence: normalized.confidence,
                         note,
-                        aiJson: { raw: json, rawText, normalized, saleStrategy: normalized.saleStrategy, valuationPolicy: normalized.valuationPolicy, rentalEstimate: normalized.rentalEstimate || null, valuationType, meta: { at: new Date().toISOString(), review: "USER_CONTROLLED" } },
+                        aiJson: { raw: json, rawText, normalized, saleStrategy: normalized.saleStrategy, valuationPolicy: normalized.valuationPolicy, rentalEstimate: normalized.rentalEstimate || null, valuationType, valuationSettings, meta: { at: new Date().toISOString(), review: "USER_CONTROLLED" } },
                     },
                 },
             },
@@ -1818,6 +1835,7 @@ export const aiPriceIndex = async (req, res) => {
         ...normalized,
         regionalStats,
         aiNote: note,
+        valuationSettings,
         needsUserApproval: true,
         reviewMode: "USER_CONTROLLED",
     });

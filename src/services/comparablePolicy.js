@@ -58,6 +58,21 @@ function comparableAgeDays(item = {}, now = Date.now()) {
     return Math.max(0, Math.floor((now - time) / 86400000));
 }
 
+function comparableBuildingAge(item = {}) {
+    const direct = toNumber(item?.buildingAge);
+    if (Number.isFinite(direct) && direct >= 0) return Math.round(direct);
+
+    const text = String(item?.buildingAgeText || "").toLocaleLowerCase("tr-TR");
+    if (!text) return null;
+    if (/sıfır|sifir|0\s*yaş|0\s*yas|yeni/.test(text)) return 0;
+
+    const match = text.match(/(\d{1,2})/);
+    if (!match) return null;
+
+    const parsed = Number(match[1]);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
 function withAgeMeta(item = {}, now = Date.now()) {
     const days = comparableAgeDays(item, now);
     if (days === null) return item;
@@ -210,6 +225,15 @@ function qualityScore(item, options = {}) {
     if (hasRoom(item)) score += 4;
     if (roomMatches(item?.roomText, options.subjectRoomText)) score += 8;
 
+    const subjectBuildingAge = toNumber(options.subjectBuildingAge);
+    const itemBuildingAge = comparableBuildingAge(item);
+    if (Number.isFinite(subjectBuildingAge) && Number.isFinite(itemBuildingAge)) {
+        const diff = Math.abs(itemBuildingAge - subjectBuildingAge);
+        if (subjectBuildingAge <= 5 && itemBuildingAge <= 5) score += 10;
+        else if (diff <= 3) score += 6;
+        else if (diff <= 8) score += 3;
+    }
+
     const area = toNumber(options.subjectArea);
     const itemArea = comparableArea(item);
     if (Number.isFinite(area) && area > 0 && Number.isFinite(itemArea) && itemArea > 0) {
@@ -291,6 +315,26 @@ function filterByComparableArea(items = [], options = {}) {
     return areaMatched.length >= MIN_VALUATION_SAMPLE ? areaMatched : items;
 }
 
+function filterByBuildingAge(items = [], options = {}) {
+    const subjectBuildingAge = toNumber(options.subjectBuildingAge);
+    if (!Number.isFinite(subjectBuildingAge) || subjectBuildingAge < 0) return items;
+
+    let ageMatched = [];
+    if (subjectBuildingAge <= 5) {
+        ageMatched = items.filter((item) => {
+            const age = comparableBuildingAge(item);
+            return Number.isFinite(age) && age <= 5;
+        });
+    } else {
+        ageMatched = items.filter((item) => {
+            const age = comparableBuildingAge(item);
+            return Number.isFinite(age) && Math.abs(age - subjectBuildingAge) <= 8;
+        });
+    }
+
+    return ageMatched.length >= MIN_VALUATION_SAMPLE ? ageMatched : items;
+}
+
 function selectValuationComparables(items = [], options = {}) {
     let pool = uniqueComparables(items).filter((item) => Number.isFinite(comparablePrice(item)));
     if (!pool.length) return [];
@@ -314,6 +358,7 @@ function selectValuationComparables(items = [], options = {}) {
     }
 
     pool = filterByComparableArea(pool, options);
+    pool = filterByBuildingAge(pool, options);
     pool = trimPriceOutliers(pool);
 
     return sortByPrice(pool);
@@ -402,6 +447,7 @@ export {
     TARGET_TOTAL,
     LONG_LISTED_MIN_DAYS,
     comparableAgeDays,
+    comparableBuildingAge,
     comparableKey,
     comparablePrice,
     comparableUnitPrice,

@@ -21,6 +21,13 @@ function roundSqm(value) {
 
 const SALE_EXPECTED_INFLATION_RATE = 0.15;
 const SALE_MAX_INFLATION_RATE = 0.30;
+const DEFAULT_VALUATION_SETTINGS = {
+    constructionCostPerSqm: 27000,
+    contractorSharePct: 50,
+    annualInflationPct: 30,
+    newBuildingAgeMax: 5,
+    costFloorEnabled: true,
+};
 
 function policyNote() {
     return "Fiyat bandı emsal verileri ve rapora girilen taşınmaz özellikleri birlikte değerlendirilerek oluşturulmuştur.";
@@ -194,24 +201,83 @@ function rentalEstimateFromSale(expectedPrice, areaHint = null) {
     };
 }
 
-function saleInflationBand(minPrice) {
+function normalizedSettings(settings = {}) {
+    return {
+        constructionCostPerSqm: toNumber(settings.constructionCostPerSqm) ?? DEFAULT_VALUATION_SETTINGS.constructionCostPerSqm,
+        contractorSharePct: toNumber(settings.contractorSharePct) ?? DEFAULT_VALUATION_SETTINGS.contractorSharePct,
+        annualInflationPct: toNumber(settings.annualInflationPct) ?? DEFAULT_VALUATION_SETTINGS.annualInflationPct,
+        newBuildingAgeMax: Math.round(toNumber(settings.newBuildingAgeMax) ?? DEFAULT_VALUATION_SETTINGS.newBuildingAgeMax),
+        costFloorEnabled: settings.costFloorEnabled === undefined ? DEFAULT_VALUATION_SETTINGS.costFloorEnabled : Boolean(settings.costFloorEnabled),
+    };
+}
+
+function firstPositive(...values) {
+    for (const value of values) {
+        const parsed = toNumber(value);
+        if (parsed !== null && parsed > 0) return parsed;
+    }
+    return null;
+}
+
+function clampRate(value, fallback) {
+    const parsed = toNumber(value);
+    if (parsed === null) return fallback;
+    return Math.max(0, Math.min(1.5, parsed / 100));
+}
+
+function saleInflationBand(minPrice, settings = {}) {
     const basePrice = roundPrice(minPrice);
     if (basePrice === null) return null;
 
-    const expectedPrice = roundPrice(basePrice * (1 + SALE_EXPECTED_INFLATION_RATE));
-    const maxPrice = roundPriceDown(basePrice * (1 + SALE_MAX_INFLATION_RATE));
+    const config = normalizedSettings(settings);
+    const maxRate = clampRate(config.annualInflationPct, SALE_MAX_INFLATION_RATE);
+    const expectedRate = Math.min(maxRate, maxRate / 2 || SALE_EXPECTED_INFLATION_RATE);
+    const expectedPrice = roundPrice(basePrice * (1 + expectedRate));
+    const maxPrice = roundPriceDown(basePrice * (1 + maxRate));
 
     return {
         minPrice: basePrice,
         expectedPrice: Math.max(basePrice, Math.min(expectedPrice, maxPrice)),
         maxPrice: Math.max(basePrice, maxPrice),
-        expectedInflationPct: Math.round(SALE_EXPECTED_INFLATION_RATE * 100),
-        maxInflationPct: Math.round(SALE_MAX_INFLATION_RATE * 100),
+        expectedInflationPct: Math.round(expectedRate * 1000) / 10,
+        maxInflationPct: Math.round(maxRate * 1000) / 10,
+    };
+}
+
+function newBuildingCostFloor(areaHint = null, buildingDetails = {}, propertyDetails = {}, options = {}) {
+    const settings = normalizedSettings(options.valuationSettings || {});
+    const isResidential = !options.propertyCategory || options.propertyCategory === "residential";
+    if (!settings.costFloorEnabled || !isResidential) return null;
+
+    const age = toNumber(buildingDetails.buildingAge);
+    if (age === null || age > settings.newBuildingAgeMax) return null;
+
+    const constructionCostPerSqm = toNumber(settings.constructionCostPerSqm);
+    const contractorSharePct = toNumber(settings.contractorSharePct);
+    if (!constructionCostPerSqm || constructionCostPerSqm <= 0 || !contractorSharePct || contractorSharePct <= 0) return null;
+
+    const costArea = firstPositive(propertyDetails.grossArea, areaHint, propertyDetails.netArea);
+    if (!costArea) return null;
+
+    const effectiveCostPerSqm = constructionCostPerSqm / (contractorSharePct / 100);
+    const floorPrice = roundPrice(effectiveCostPerSqm * costArea);
+
+    return {
+        floorPrice,
+        constructionCostPerSqm: roundSqm(constructionCostPerSqm),
+        contractorSharePct: Math.round(contractorSharePct * 10) / 10,
+        effectiveCostPerSqm: roundSqm(effectiveCostPerSqm),
+        area: Math.round(costArea * 100) / 100,
+        buildingAge: Math.round(age),
+        maxAge: settings.newBuildingAgeMax,
+        applied: false,
+        note: `${Math.round(age)} yaş bina için ${roundSqm(effectiveCostPerSqm).toLocaleString("tr-TR")} TL/m² efektif inşaat maliyeti tabanı kontrol edilmiştir.`,
     };
 }
 
 function applyValuationPolicy(input = {}, areaHint = null, valuationType = "SALE", options = {}) {
     const isRental = String(valuationType || "").toUpperCase() === "RENTAL";
+    const valuationSettings = normalizedSettings(options.valuationSettings || {});
     const premium = options.skipAmenityPremium
         ? { multiplier: 1, percent: 0, features: [], note: null }
         : premiumFeatureAdjustment(options.buildingDetails || {}, options);
@@ -265,7 +331,20 @@ function applyValuationPolicy(input = {}, areaHint = null, valuationType = "SALE
         maxPrice = roundPrice(maxPrice * condition.multiplier);
     }
 
-    const inflationBand = isRental ? null : saleInflationBand(minPrice);
+    const costFloor = isRental
+        ? null
+        : newBuildingCostFloor(area, options.buildingDetails || {}, options.propertyDetails || {}, {
+              ...options,
+              valuationSettings,
+          });
+    if (costFloor && minPrice < costFloor.floorPrice) {
+        minPrice = costFloor.floorPrice;
+        expectedPrice = Math.max(expectedPrice, minPrice);
+        maxPrice = Math.max(maxPrice, expectedPrice);
+        costFloor.applied = true;
+    }
+
+    const inflationBand = isRental ? null : saleInflationBand(minPrice, valuationSettings);
     if (inflationBand) {
         minPrice = inflationBand.minPrice;
         expectedPrice = inflationBand.expectedPrice;
@@ -289,6 +368,7 @@ function applyValuationPolicy(input = {}, areaHint = null, valuationType = "SALE
                       maxSpreadPct: inflationBand.maxInflationPct,
                   }
                 : null,
+            newBuildingCostFloor: costFloor,
             amenityPremium: premium.percent > 0
                 ? {
                       percent: Math.round(premium.percent * 100),
@@ -326,7 +406,7 @@ function applyValuationPolicy(input = {}, areaHint = null, valuationType = "SALE
         }
     }
 
-    const noteText = [next.valuationPolicy.note, premium.note, condition.note].filter(Boolean).join(" ");
+    const noteText = [next.valuationPolicy.note, costFloor?.applied ? costFloor.note : null, premium.note, condition.note].filter(Boolean).join(" ");
     const existingNote = String(input.note || "").trim();
     next.note = options.suppressPolicyNoteAppend
         ? existingNote
@@ -337,6 +417,7 @@ function applyValuationPolicy(input = {}, areaHint = null, valuationType = "SALE
 
 export {
     applyValuationPolicy,
+    newBuildingCostFloor,
     rentalEstimateFromSale,
     rentalStrategy,
     saleStrategy,

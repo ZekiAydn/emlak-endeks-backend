@@ -295,6 +295,17 @@ model PricingAnalysis {
   report              Report   @relation(fields: [reportId], references: [id])
 }
 
+model ValuationSettings {
+  id                     String   @id @default("default")
+  constructionCostPerSqm Float?   @default(27000)
+  contractorSharePct     Float?   @default(50)
+  annualInflationPct     Float?   @default(30)
+  newBuildingAgeMax      Int      @default(5)
+  costFloorEnabled       Boolean  @default(true)
+  createdAt              DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt              DateTime @updatedAt
+}
+
 model Media {
   id              String    @id @default(cuid())
   createdAt       DateTime  @default(now())
