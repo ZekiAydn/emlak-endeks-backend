@@ -294,20 +294,27 @@ model PricingAnalysis {
 }
 
 model Media {
-  id        String    @id @default(cuid())
-  createdAt DateTime  @default(now())
-  type      MediaType
-  mime      String
-  filename  String?
-  data      Bytes
-  userId    String?
-  reportId  String?
-  order     Int       @default(0)
-  report    Report?   @relation("ReportMedia", fields: [reportId], references: [id])
-  user      User?     @relation("UserMedia", fields: [userId], references: [id])
+  id              String    @id @default(cuid())
+  createdAt       DateTime  @default(now())
+  type            MediaType
+  mime            String
+  filename        String?
+  data            Bytes?
+  storageProvider String?
+  storageBucket   String?
+  storageKey      String?
+  url             String?
+  size            Int?
+  etag            String?
+  userId          String?
+  reportId        String?
+  order           Int       @default(0)
+  report          Report?   @relation("ReportMedia", fields: [reportId], references: [id])
+  user            User?     @relation("UserMedia", fields: [userId], references: [id])
 
   @@index([userId])
   @@index([reportId])
+  @@index([storageProvider, storageKey])
 }
 
 model ComparableListing {
@@ -357,12 +364,20 @@ model ComparableListing {
   heating         String?
   heatingType     String?
 
-  imageUrl         String
-  imageStatus      String                @default("DEFAULT")
-  imageSource      ComparableImageSource @default(UNKNOWN)
-  imageFieldSource ComparableFieldSource @default(UNKNOWN)
-  fallbackImageUrl String?
-  listingUrl       String
+  imageUrl             String
+  imageOriginalUrl     String?
+  imageStorageProvider String?
+  imageStorageBucket   String?
+  imageStorageKey      String?
+  imageMime            String?
+  imageSize            Int?
+  imageEtag            String?
+  imageCachedAt        DateTime?
+  imageStatus          String                @default("DEFAULT")
+  imageSource          ComparableImageSource @default(UNKNOWN)
+  imageFieldSource     ComparableFieldSource @default(UNKNOWN)
+  fallbackImageUrl     String?
+  listingUrl           String
 
   providerRaw         Json?
   parsedRaw           Json?
@@ -413,6 +428,7 @@ model ComparableListing {
   @@index([lastSeenAt])
   @@index([expiresAt])
   @@index([listingUrl])
+  @@index([imageStorageProvider, imageStorageKey])
 }
 
 model OpenLocationStat {

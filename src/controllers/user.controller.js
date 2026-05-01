@@ -5,7 +5,7 @@ import { PLAN_DEFINITIONS, getSubscriptionSummary } from "../services/subscripti
 import { badRequest, conflict, forbidden, notFound, unauthorized } from "../utils/errors.js";
 
 const mediaSelect = {
-    id: true, type: true, mime: true, filename: true, order: true, createdAt: true, userId: true, reportId: true
+    id: true, type: true, mime: true, filename: true, url: true, size: true, order: true, createdAt: true, userId: true, reportId: true
 };
 
 export const getMe = async (req, res) => {

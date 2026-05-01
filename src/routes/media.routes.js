@@ -11,6 +11,7 @@ const upload = multer({
 });
 
 router.post("/media/upload",authRequired, upload.single("file"), c.upload);
+router.get("/media/:id/url",authRequired, c.getUrlById);
 router.get("/media/:id",authRequired, c.getById);
 router.delete("/media/:id",authRequired, c.deleteById);
 

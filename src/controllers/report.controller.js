@@ -20,6 +20,12 @@ import { propertyCategory } from "../services/propertyCategory.js";
 import { applyValuationPolicy } from "../services/valuationPolicy.js";
 import { quantile, selectValuationComparables } from "../services/comparablePolicy.js";
 import { buildLocationInsights } from "../services/locationInsights.js";
+import { buildStoredMediaData, deleteStoredMediaObject } from "../services/mediaStorage.js";
+import {
+    cacheComparableImages,
+    withSignedComparableImagesForReport,
+    withSignedComparableImageUrls,
+} from "../services/comparableImageCache.js";
 
 
 const mediaSelect = {
@@ -27,6 +33,8 @@ const mediaSelect = {
     type: true,
     mime: true,
     filename: true,
+    url: true,
+    size: true,
     order: true,
     createdAt: true,
     userId: true,
@@ -151,6 +159,51 @@ async function getProperty(userId, id) {
     return property;
 }
 
+function reportClientData(body = {}) {
+    const client = body.client || body.newClient || {};
+    const fullName = cleanString(body.clientFullName || client.fullName);
+    const phoneSource = body.clientPhone !== undefined ? body.clientPhone : client.phone;
+    const emailSource = body.clientEmail !== undefined ? body.clientEmail : client.email;
+    const notesSource = body.clientNotes !== undefined ? body.clientNotes : client.notes;
+
+    return {
+        fullName,
+        phone: phoneSource === undefined ? undefined : cleanOptional(phoneSource),
+        email: emailSource === undefined ? undefined : cleanOptional(emailSource),
+        notes: notesSource === undefined ? undefined : cleanOptional(notesSource),
+    };
+}
+
+async function ensureReportClient(userId, body = {}, currentClient = null) {
+    const input = reportClientData(body);
+    const hasClientData = Boolean(input.fullName || input.phone !== undefined || input.email !== undefined || input.notes !== undefined);
+    if (!hasClientData) return currentClient;
+
+    if (currentClient?.id) {
+        return prisma.client.update({
+            where: { id: currentClient.id },
+            data: {
+                fullName: input.fullName || currentClient.fullName,
+                ...(input.phone !== undefined ? { phone: input.phone } : {}),
+                ...(input.email !== undefined ? { email: input.email } : {}),
+                ...(input.notes !== undefined ? { notes: input.notes } : {}),
+            },
+        });
+    }
+
+    if (!input.fullName) return null;
+
+    return prisma.client.create({
+        data: {
+            userId,
+            fullName: input.fullName,
+            phone: input.phone ?? null,
+            email: input.email ?? null,
+            notes: input.notes ?? null,
+        },
+    });
+}
+
 async function findReport(userId, id) {
     const report = await prisma.report.findFirst({
         where: { id, userId, isDeleted: false },
@@ -180,6 +233,8 @@ function normalizeComparable(c) {
         distanceMeters,
         roomText: c?.roomText ?? null,
         imageUrl: c?.imageUrl ?? null,
+        imageOriginalUrl: c?.imageOriginalUrl ?? null,
+        imageCache: c?.imageCache ?? null,
         imageSource: c?.imageSource ?? null,
         imageAttribution: c?.imageAttribution ?? null,
         address: c?.address ?? null,
@@ -260,23 +315,118 @@ function mergeComparablesJson(existingValue, incomingValue) {
     return merged;
 }
 
+function pickPricingAnalysisFields(value = {}) {
+    return {
+        minPrice: value.minPrice ?? null,
+        expectedPrice: value.expectedPrice ?? value.avgPrice ?? null,
+        maxPrice: value.maxPrice ?? null,
+        note: value.note ?? null,
+        minPricePerSqm: value.minPricePerSqm ?? null,
+        expectedPricePerSqm: value.expectedPricePerSqm ?? value.avgPricePerSqm ?? null,
+        maxPricePerSqm: value.maxPricePerSqm ?? null,
+        confidence: value.confidence ?? null,
+        aiJson: value.aiJson ?? null,
+    };
+}
+
 async function replaceReportMedia(reportId, { type, buffer, mime, filename }) {
     if (!reportId || !type || !buffer || !mime) return null;
+
+    const existingMedia = await prisma.media.findMany({
+        where: { reportId, type },
+    });
+    await Promise.all(existingMedia.map((media) => deleteStoredMediaObject(media)));
 
     await prisma.media.deleteMany({
         where: { reportId, type },
     });
 
     return await prisma.media.create({
-        data: {
+        data: await buildStoredMediaData({
             reportId,
             type,
-            data: buffer,
             mime,
             filename: filename || null,
+            buffer,
             order: 0,
-        },
+        }),
         select: mediaSelect,
+    });
+}
+
+async function cacheComparablesJsonImages(comparablesJson, statsTarget = null) {
+    if (!comparablesJson || !Array.isArray(comparablesJson.comparables) || !comparablesJson.comparables.length) {
+        return comparablesJson;
+    }
+
+    const result = await cacheComparableImages(comparablesJson.comparables);
+    if (statsTarget && result.stats) statsTarget.imageCache = result.stats;
+
+    return {
+        ...comparablesJson,
+        comparables: result.comparables,
+        comparableImageCache: result.stats,
+    };
+}
+
+async function cacheBundleComparableImages(bundle, sourceMeta = null) {
+    if (!Array.isArray(bundle?.comparables) || !bundle.comparables.length) return bundle;
+
+    const imageCache = await cacheComparableImages(bundle.comparables);
+    return {
+        ...bundle,
+        comparables: imageCache.comparables,
+        sourceMeta: {
+            ...(bundle.sourceMeta || {}),
+            ...(sourceMeta || {}),
+            imageCache: imageCache.stats,
+        },
+    };
+}
+
+function normalizePricingAnalysisForSave(pricingAnalysis, { body = {}, report = null, propertyDetails = null, buildingDetails = null, locationData = null } = {}) {
+    const sanitized = sanitizePricingAnalysis(pricingAnalysis);
+    if (!sanitized) return null;
+
+    const location = locationData || (report ? reportLocationSource(report) : {});
+    const valuationType = valuationTypeValue(
+        body.valuationType,
+        body.comparablesJson?.valuationType,
+        report?.comparablesJson?.valuationType
+    );
+    const category = propertyCategory({
+        reportType: body.reportType ?? location.reportType ?? report?.reportType,
+        propertyType: buildingDetails?.propertyType,
+    });
+    const areaHint = firstPositive(
+        body.subjectArea,
+        propertyDetails?.netArea,
+        propertyDetails?.grossArea,
+        body.landArea,
+        location.landArea,
+        body.comparablesJson?.parcelLookup?.properties?.area,
+        report?.comparablesJson?.parcelLookup?.properties?.area
+    );
+
+    const normalized = applyValuationPolicy(sanitized, areaHint, valuationType, {
+        propertyCategory: category,
+        skipAmenityPremium: true,
+        suppressPolicyNoteAppend: true,
+    });
+
+    const existingAiJson = sanitized.aiJson && typeof sanitized.aiJson === "object" && !Array.isArray(sanitized.aiJson)
+        ? sanitized.aiJson
+        : {};
+
+    return pickPricingAnalysisFields({
+        ...normalized,
+        aiJson: {
+            ...existingAiJson,
+            saleStrategy: normalized.saleStrategy || existingAiJson.saleStrategy || null,
+            valuationPolicy: normalized.valuationPolicy || existingAiJson.valuationPolicy || null,
+            rentalEstimate: normalized.rentalEstimate || existingAiJson.rentalEstimate || null,
+            valuationType: normalized.valuationType || valuationType,
+        },
     });
 }
 
@@ -589,6 +739,10 @@ async function updateComparableDataForReport(req, report, body = {}) {
         }
     }
 
+    if (Array.isArray(bundle?.comparables) && bundle.comparables.length > 0) {
+        bundle = await cacheBundleComparableImages(bundle);
+    }
+
     const hasComparables = Array.isArray(bundle?.comparables) && bundle.comparables.length > 0;
     if (hasComparables) {
         try {
@@ -710,7 +864,7 @@ async function updateComparableDataForReport(req, report, body = {}) {
     });
 
     return {
-        comparables: nextComparablesJson.comparables || [],
+        comparables: await withSignedComparableImageUrls(nextComparablesJson.comparables || []),
         groups: nextComparablesJson.groups || null,
         parcelLookup: nextComparablesJson.parcelLookup || null,
         marketProjection: hasComparables ? bundle?.marketProjection || null : report.marketProjectionJson || null,
@@ -774,7 +928,8 @@ export const createReport = async (req, res) => {
     await assertCanCreateReport(prisma, userId);
 
     const property = await getProperty(userId, body.propertyId);
-    const client = property?.client || (await getClient(userId, body.clientId));
+    let client = property?.client || (await getClient(userId, body.clientId));
+    client = await ensureReportClient(userId, body, client);
 
     if (body.clientId && property && property.clientId !== body.clientId) {
         throw badRequest("Seçilen taşınmaz bu rapor sahibi kaydıyla eşleşmiyor.", "propertyId");
@@ -787,11 +942,21 @@ export const createReport = async (req, res) => {
     if (!clientFullName) throw badRequest("Rapor sahibi adı girmeniz gerekiyor.", "clientFullName");
     if (!addressText) throw badRequest("Rapor için taşınmaz adresi gerekiyor.", "addressText");
 
+    const locationData = reportLocationData(body, property);
+    const pd = sanitizePropertyDetails(body.propertyDetails);
+    const bd = sanitizeBuildingDetails(body.buildingDetails);
+    const pa = normalizePricingAnalysisForSave(body.pricingAnalysis, {
+        body,
+        propertyDetails: pd || body.propertyDetails || {},
+        buildingDetails: bd || body.buildingDetails || {},
+        locationData,
+    });
+
     const data = {
         userId,
         clientId: client?.id || null,
         propertyId: property?.id || null,
-        ...reportLocationData(body, property),
+        ...locationData,
         clientFullName,
         addressText,
         parcelText,
@@ -805,21 +970,26 @@ export const createReport = async (req, res) => {
         regionalStatsJson: body.regionalStatsJson || null,
     };
 
-    const pd = sanitizePropertyDetails(body.propertyDetails);
     if (pd) data.propertyDetails = { create: pd };
 
-    const bd = sanitizeBuildingDetails(body.buildingDetails);
     if (bd) data.buildingDetails = { create: bd };
 
-    const pa = sanitizePricingAnalysis(body.pricingAnalysis);
     if (pa) data.pricingAnalysis = { create: pa };
 
-    const report = await prisma.report.create({
+    let report = await prisma.report.create({
         data,
         include: reportInclude,
     });
 
-    res.status(201).json(report);
+    if (Array.isArray(report.comparablesJson?.comparables) && report.comparablesJson.comparables.length) {
+        report = await prisma.report.update({
+            where: { id: report.id },
+            data: { comparablesJson: await cacheComparablesJsonImages(report.comparablesJson) },
+            include: reportInclude,
+        });
+    }
+
+    res.status(201).json(await withSignedComparableImagesForReport(report));
 };
 
 export const listReports = async (req, res) => {
@@ -869,7 +1039,7 @@ export const getLatestDraftReport = async (req, res) => {
         include: reportInclude,
     });
 
-    res.json(draft || null);
+    res.json(draft ? await withSignedComparableImagesForReport(draft) : null);
 };
 
 export const createDraftReport = async (req, res) => {
@@ -893,7 +1063,7 @@ export const createDraftReport = async (req, res) => {
         include: reportInclude,
     });
 
-    res.status(201).json(draft);
+    res.status(201).json(await withSignedComparableImagesForReport(draft));
 };
 
 export const updateDraftReport = async (req, res) => {
@@ -923,7 +1093,7 @@ export const updateDraftReport = async (req, res) => {
         include: reportInclude,
     });
 
-    res.json(draft);
+    res.json(await withSignedComparableImagesForReport(draft));
 };
 
 export const deleteReport = async (req, res) => {
@@ -945,7 +1115,7 @@ export const deleteReport = async (req, res) => {
 
 export const getReport = async (req, res) => {
     const report = await findReport(req.user.userId, req.params.id);
-    res.json(report);
+    res.json(await withSignedComparableImagesForReport(report));
 };
 
 
@@ -968,7 +1138,7 @@ export const completeReport = async (req, res) => {
         include: reportInclude,
     });
 
-    res.json(updated);
+    res.json(await withSignedComparableImagesForReport(updated));
 };
 
 export const updateReport = async (req, res) => {
@@ -986,6 +1156,7 @@ export const updateReport = async (req, res) => {
         property = await getProperty(userId, body.propertyId);
         data.propertyId = property?.id || null;
         if (property?.clientId) data.clientId = property.clientId;
+        if (property?.client) client = property.client;
     }
 
     if (body.clientId !== undefined) {
@@ -997,12 +1168,20 @@ export const updateReport = async (req, res) => {
         throw badRequest("Seçilen taşınmaz bu rapor sahibi kaydıyla eşleşmiyor.", "propertyId");
     }
 
+    if (body.clientFullName !== undefined || body.clientPhone !== undefined || body.clientEmail !== undefined || body.clientNotes !== undefined || body.client || body.newClient) {
+        client = await ensureReportClient(userId, body, client || existingReport.client || null);
+        if (client?.id) data.clientId = client.id;
+    }
+
     if (body.clientFullName !== undefined) data.clientFullName = cleanString(body.clientFullName || client?.fullName);
     if (body.addressText !== undefined) data.addressText = cleanString(body.addressText || property?.addressText);
     if (body.parcelText !== undefined) data.parcelText = cleanString(body.parcelText ?? property?.parcelText ?? "");
     Object.assign(data, reportLocationData({ ...existingReport, ...body }, property || existingReport.property));
     if (body.consultantOpinion !== undefined) data.consultantOpinion = body.consultantOpinion || "";
-    if (body.comparablesJson !== undefined) data.comparablesJson = mergeComparablesJson(existingReport.comparablesJson, body.comparablesJson);
+    if (body.comparablesJson !== undefined) {
+        const incomingComparablesJson = await cacheComparablesJsonImages(body.comparablesJson);
+        data.comparablesJson = mergeComparablesJson(existingReport.comparablesJson, incomingComparablesJson);
+    }
     if (body.marketProjectionJson !== undefined) data.marketProjectionJson = body.marketProjectionJson;
     if (body.regionalStatsJson !== undefined) data.regionalStatsJson = body.regionalStatsJson;
 
@@ -1012,7 +1191,19 @@ export const updateReport = async (req, res) => {
     const bd = sanitizeBuildingDetails(body.buildingDetails);
     if (bd) data.buildingDetails = { upsert: { create: bd, update: bd } };
 
-    const pa = sanitizePricingAnalysis(body.pricingAnalysis);
+    const pa = normalizePricingAnalysisForSave(body.pricingAnalysis, {
+        body,
+        report: existingReport,
+        propertyDetails: {
+            ...(existingReport.propertyDetails || {}),
+            ...(pd || {}),
+        },
+        buildingDetails: {
+            ...(existingReport.buildingDetails || {}),
+            ...(bd || {}),
+        },
+        locationData: reportLocationData({ ...existingReport, ...body }, property || existingReport.property),
+    });
     if (pa) data.pricingAnalysis = { upsert: { create: pa, update: pa } };
 
     const updated = await prisma.report.update({
@@ -1021,7 +1212,7 @@ export const updateReport = async (req, res) => {
         include: reportInclude,
     });
 
-    res.json(updated);
+    res.json(await withSignedComparableImagesForReport(updated));
 };
 
 export const autofillParcelData = async (req, res) => {
@@ -1158,6 +1349,10 @@ export const autofillExternalData = async (req, res) => {
         } catch (error) {
             warnings.push(`Emsal görselleri zenginleştirilemedi: ${String(error.message || error)}`);
         }
+    }
+
+    if (Array.isArray(bundle?.comparables) && bundle.comparables.length > 0) {
+        bundle = await cacheBundleComparableImages(bundle);
     }
 
     const hasComparables = Array.isArray(bundle?.comparables) && bundle.comparables.length > 0;
@@ -1308,7 +1503,7 @@ export const autofillExternalData = async (req, res) => {
     });
 
     res.json({
-        comparables: nextComparablesJson.comparables || [],
+        comparables: await withSignedComparableImageUrls(nextComparablesJson.comparables || []),
         groups: nextComparablesJson.groups || null,
         parcelLookup: nextComparablesJson.parcelLookup || null,
         marketProjection: hasComparables ? bundle?.marketProjection || null : report.marketProjectionJson || null,

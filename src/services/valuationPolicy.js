@@ -9,13 +9,21 @@ function roundPrice(value) {
     return n === null ? null : Math.round(n / 1000) * 1000;
 }
 
+function roundPriceDown(value) {
+    const n = toNumber(value);
+    return n === null ? null : Math.floor(n / 1000) * 1000;
+}
+
 function roundSqm(value) {
     const n = toNumber(value);
     return n === null ? null : Math.round(n);
 }
 
+const SALE_EXPECTED_INFLATION_RATE = 0.15;
+const SALE_MAX_INFLATION_RATE = 0.30;
+
 function policyNote() {
-    return "Fiyat bandı üç farklı satış vadesi senaryosuna göre oluşturulmuştur.";
+    return "Fiyat bandı minimum satış değeri taban alınarak 6 aylık ve yıllık enflasyon katsayılarıyla oluşturulmuştur.";
 }
 
 function premiumFeatureAdjustment(buildingDetails = {}, options = {}) {
@@ -181,6 +189,22 @@ function rentalEstimateFromSale(expectedPrice, areaHint = null) {
     };
 }
 
+function saleInflationBand(minPrice) {
+    const basePrice = roundPrice(minPrice);
+    if (basePrice === null) return null;
+
+    const expectedPrice = roundPrice(basePrice * (1 + SALE_EXPECTED_INFLATION_RATE));
+    const maxPrice = roundPriceDown(basePrice * (1 + SALE_MAX_INFLATION_RATE));
+
+    return {
+        minPrice: basePrice,
+        expectedPrice: Math.max(basePrice, Math.min(expectedPrice, maxPrice)),
+        maxPrice: Math.max(basePrice, maxPrice),
+        expectedInflationPct: Math.round(SALE_EXPECTED_INFLATION_RATE * 100),
+        maxInflationPct: Math.round(SALE_MAX_INFLATION_RATE * 100),
+    };
+}
+
 function applyValuationPolicy(input = {}, areaHint = null, valuationType = "SALE", options = {}) {
     const isRental = String(valuationType || "").toUpperCase() === "RENTAL";
     const premium = options.skipAmenityPremium
@@ -236,6 +260,13 @@ function applyValuationPolicy(input = {}, areaHint = null, valuationType = "SALE
         maxPrice = roundPrice(maxPrice * condition.multiplier);
     }
 
+    const inflationBand = isRental ? null : saleInflationBand(minPrice);
+    if (inflationBand) {
+        minPrice = inflationBand.minPrice;
+        expectedPrice = inflationBand.expectedPrice;
+        maxPrice = inflationBand.maxPrice;
+    }
+
     const next = {
         ...input,
         minPrice,
@@ -245,6 +276,14 @@ function applyValuationPolicy(input = {}, areaHint = null, valuationType = "SALE
         saleStrategy: isRental ? rentalStrategy() : saleStrategy(),
         valuationPolicy: {
             note: isRental ? "Kira bandı farklı pazarlama süreleri için oluşturulmuştur." : policyNote(),
+            saleInflationBand: inflationBand
+                ? {
+                      basePriceKey: "minPrice",
+                      expectedInflationPct: inflationBand.expectedInflationPct,
+                      maxInflationPct: inflationBand.maxInflationPct,
+                      maxSpreadPct: inflationBand.maxInflationPct,
+                  }
+                : null,
             amenityPremium: premium.percent > 0
                 ? {
                       percent: Math.round(premium.percent * 100),
@@ -276,15 +315,17 @@ function applyValuationPolicy(input = {}, areaHint = null, valuationType = "SALE
         const minSqm = sourceMinSqm ?? toNumber(input.minPricePerSqm);
         if (minSqm !== null) {
             next.minPricePerSqm = roundSqm(minSqm);
-            next.expectedPricePerSqm = roundSqm(minSqm * 1.15);
+            next.expectedPricePerSqm = roundSqm(minSqm * (1 + (isRental ? 0.1 : SALE_EXPECTED_INFLATION_RATE)));
             next.avgPricePerSqm = next.expectedPricePerSqm;
-            next.maxPricePerSqm = roundSqm(minSqm * 1.3);
+            next.maxPricePerSqm = roundSqm(minSqm * (1 + (isRental ? 0.22 : SALE_MAX_INFLATION_RATE)));
         }
     }
 
     const noteText = [next.valuationPolicy.note, premium.note, condition.note].filter(Boolean).join(" ");
     const existingNote = String(input.note || "").trim();
-    next.note = existingNote ? `${existingNote}\n\n${noteText}` : noteText;
+    next.note = options.suppressPolicyNoteAppend
+        ? existingNote
+        : existingNote ? `${existingNote}\n\n${noteText}` : noteText;
 
     return next;
 }

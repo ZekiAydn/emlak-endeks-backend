@@ -11,6 +11,10 @@ import {
     toNumber,
     uniqueComparables,
 } from "./comparablePolicy.js";
+import {
+    comparableImageCacheDbFields,
+    comparableImageCacheFromListing,
+} from "./comparableImageCache.js";
 
 const CACHE_PROVIDER = "DB_CACHE";
 const CACHE_QUERY_LIMIT = 240;
@@ -263,6 +267,7 @@ function comparableToCreateUpdate(item = {}, criteria = {}, options = {}) {
     });
     const now = new Date();
     const source = cleanText(item.source || item.provider || "UNKNOWN").slice(0, 80) || "UNKNOWN";
+    const imageCacheFields = comparableImageCacheDbFields(item);
 
     return {
         where: { sourceUrl },
@@ -301,6 +306,7 @@ function comparableToCreateUpdate(item = {}, criteria = {}, options = {}) {
             heating: cleanText(item.heating) || null,
             heatingType: cleanText(item.heatingType) || null,
             imageUrl: cleanText(item.imageUrl),
+            ...imageCacheFields,
             imageStatus: "REAL",
             imageSource: imageSourceEnum(item.imageSource, item),
             imageFieldSource: fieldSourceEnum(item.imageSource),
@@ -373,6 +379,7 @@ function comparableToCreateUpdate(item = {}, criteria = {}, options = {}) {
             heating: cleanText(item.heating) || null,
             heatingType: cleanText(item.heatingType) || null,
             imageUrl: cleanText(item.imageUrl),
+            ...imageCacheFields,
             imageStatus: "REAL",
             imageSource: imageSourceEnum(item.imageSource, item),
             imageFieldSource: fieldSourceEnum(item.imageSource),
@@ -433,6 +440,8 @@ function listingToComparable(row = {}) {
         totalFloors: row.totalFloors ?? null,
         distanceMeters: null,
         imageUrl: row.imageUrl,
+        imageOriginalUrl: row.imageOriginalUrl || row.imageUrl || null,
+        imageCache: comparableImageCacheFromListing(row),
         imageSource: row.imageSource || "cache",
         address: row.addressText || [row.city, row.district, row.neighborhood].filter(Boolean).join(" / "),
         externalId: row.externalId || `cache:${row.id}`,
