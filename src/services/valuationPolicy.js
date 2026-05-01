@@ -40,22 +40,25 @@ function premiumFeatureAdjustment(buildingDetails = {}, options = {}) {
     const features = [];
     let percent = 0;
 
-    if (buildingDetails.isSite) {
-        percent += 0.04;
-        features.push("site içerisinde");
+    function add(condition, value, label) {
+        if (!condition) return;
+        percent += value;
+        features.push(label);
     }
 
-    if (buildingDetails.closedPool) {
-        percent += 0.05;
-        features.push("kapalı havuz");
-    }
+    add(buildingDetails.isSite, 0.04, "site içerisinde");
+    add(buildingDetails.closedPool, 0.05, "kapalı havuz");
+    add(!buildingDetails.closedPool && buildingDetails.openPool, 0.04, "açık havuz");
+    add(buildingDetails.hasFitnessCenter || buildingDetails.hasSportsArea, 0.04, "fitness/spor alanı");
+    add(buildingDetails.security, 0.03, "güvenlik");
+    add(buildingDetails.closedParking, 0.03, "kapalı otopark");
+    add(!buildingDetails.closedParking && buildingDetails.openParking, 0.01, "açık otopark");
+    add(buildingDetails.hasGenerator, 0.02, "jeneratör");
+    add(buildingDetails.hasThermalInsulation, 0.02, "ısı yalıtımı");
+    add(buildingDetails.hasAC, 0.02, "klima");
+    add(buildingDetails.hasFireplace, 0.02, "şömine");
 
-    if (buildingDetails.hasFitnessCenter || buildingDetails.hasSportsArea) {
-        percent += 0.04;
-        features.push("fitness/spor alanı");
-    }
-
-    percent = Math.min(0.15, percent);
+    percent = Math.min(0.24, percent);
 
     return {
         multiplier: percent > 0 ? 1 + percent : 1,
