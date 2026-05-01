@@ -85,6 +85,8 @@ function adjustedSqm(baseSqm, propertyDetails = {}, buildingDetails = {}) {
     if (buildingDetails.security) factor *= 1.04;
     if (buildingDetails.openPool || buildingDetails.closedPool) factor *= 1.05;
     if (buildingDetails.hasGenerator) factor *= 1.02;
+    if (buildingDetails.hasHydrophore) factor *= 1.01;
+    if (buildingDetails.hasWaterTank) factor *= 1.01;
     if (buildingDetails.hasSportsArea || buildingDetails.hasFitnessCenter) factor *= 1.02;
     if (buildingDetails.hasThermalInsulation) factor *= 1.02;
     if (buildingDetails.hasAC) factor *= 1.02;

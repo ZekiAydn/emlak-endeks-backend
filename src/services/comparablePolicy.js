@@ -1,7 +1,9 @@
 const TARGET_GROUP_SIZE = 6;
-const TARGET_TOTAL = TARGET_GROUP_SIZE * 3;
+const TARGET_STALE_GROUP_SIZE = 6;
+const TARGET_TOTAL = TARGET_GROUP_SIZE * 3 + TARGET_STALE_GROUP_SIZE;
 const PROVIDER_TIMEOUT_MS = 45000;
 const MIN_VALUATION_SAMPLE = 3;
+const LONG_LISTED_MIN_DAYS = 45;
 
 function toNumber(value) {
     if (value === undefined || value === null || value === "") return null;
@@ -40,6 +42,31 @@ function comparableUnitPrice(item) {
 function comparablePrice(item) {
     const price = toNumber(item?.price);
     return Number.isFinite(price) && price > 0 ? price : null;
+}
+
+function comparableAgeDays(item = {}, now = Date.now()) {
+    const direct = toNumber(item?.daysOnMarket);
+    if (Number.isFinite(direct) && direct >= 0) return Math.round(direct);
+
+    const dateValue = item.createdAt || item.listingDate || item.publishedAt || item.firstSeenAt;
+    if (!dateValue) return null;
+
+    const date = new Date(dateValue);
+    const time = date.getTime();
+    if (!Number.isFinite(time) || time > now + 86400000) return null;
+
+    return Math.max(0, Math.floor((now - time) / 86400000));
+}
+
+function withAgeMeta(item = {}, now = Date.now()) {
+    const days = comparableAgeDays(item, now);
+    if (days === null) return item;
+
+    return {
+        ...item,
+        daysOnMarket: days,
+        longListed: days >= LONG_LISTED_MIN_DAYS,
+    };
 }
 
 function priceMetric(item) {
@@ -220,6 +247,29 @@ function selectBest(items, count, usedKeys, options = {}) {
         .slice(0, count);
 }
 
+function selectLongListed(items, count, usedKeys, options = {}) {
+    const minDays = toNumber(options.longListedMinDays) ?? LONG_LISTED_MIN_DAYS;
+
+    return items
+        .filter((item) => !usedKeys.has(comparableKey(item)))
+        .filter((item) => Number.isFinite(comparablePrice(item)))
+        .filter((item) => {
+            const days = comparableAgeDays(item);
+            return Number.isFinite(days) && days >= minDays;
+        })
+        .slice()
+        .sort((a, b) => {
+            const ageDiff = (comparableAgeDays(b) || 0) - (comparableAgeDays(a) || 0);
+            if (ageDiff) return ageDiff;
+
+            const unitDiff = (comparableUnitPrice(b) || 0) - (comparableUnitPrice(a) || 0);
+            if (unitDiff) return unitDiff;
+
+            return (comparablePrice(b) || 0) - (comparablePrice(a) || 0);
+        })
+        .slice(0, count);
+}
+
 function sortByPrice(items = []) {
     return items.slice().sort((a, b) => (comparablePrice(a) || 0) - (comparablePrice(b) || 0));
 }
@@ -270,7 +320,8 @@ function selectValuationComparables(items = [], options = {}) {
 }
 
 function selectPortfolioGroups(items = [], options = {}) {
-    const unique = uniqueComparables(items);
+    const now = Date.now();
+    const unique = uniqueComparables(items).map((item) => withAgeMeta(item, now));
     const priced = unique.filter((item) => Number.isFinite(comparablePrice(item)));
     const withArea = priced.filter((item) => Number.isFinite(comparableArea(item)));
     let pool = withArea.length >= TARGET_TOTAL ? withArea : priced;
@@ -285,13 +336,16 @@ function selectPortfolioGroups(items = [], options = {}) {
         if (roomCompatiblePool.length >= MIN_VALUATION_SAMPLE) pool = roomCompatiblePool;
     }
 
+    const used = new Set();
+    const stale = selectLongListed(pool, TARGET_STALE_GROUP_SIZE, used, options);
+    stale.forEach((item) => used.add(comparableKey(item)));
+
     const third = Math.max(TARGET_GROUP_SIZE, Math.ceil(pool.length / 3));
     const lowBand = pool.slice(0, third);
     const highBand = pool.slice(Math.max(0, pool.length - third));
     const midStart = Math.max(0, Math.floor(pool.length / 2) - Math.ceil(third / 2));
     const midBand = pool.slice(midStart, midStart + third);
 
-    const used = new Set();
     const low = sortByPrice(selectBest(lowBand, TARGET_GROUP_SIZE, used, options));
     low.forEach((item) => used.add(comparableKey(item)));
 
@@ -314,6 +368,7 @@ function selectPortfolioGroups(items = [], options = {}) {
         ...groups.low.map((item) => ({ ...item, group: "low" })),
         ...groups.mid.map((item) => ({ ...item, group: "mid" })),
         ...groups.high.map((item) => ({ ...item, group: "high" })),
+        ...stale.map((item) => ({ ...item, group: "stale", longListed: true })),
     ];
 
     const finalComparables = uniqueComparables(tagged).slice(0, TARGET_TOTAL);
@@ -321,6 +376,7 @@ function selectPortfolioGroups(items = [], options = {}) {
         low: finalComparables.filter((item) => item.group === "low").map(comparableKey).filter(Boolean),
         mid: finalComparables.filter((item) => item.group === "mid").map(comparableKey).filter(Boolean),
         high: finalComparables.filter((item) => item.group === "high").map(comparableKey).filter(Boolean),
+        stale: finalComparables.filter((item) => item.group === "stale").map(comparableKey).filter(Boolean),
     };
 
     return {
@@ -331,6 +387,8 @@ function selectPortfolioGroups(items = [], options = {}) {
             pricedCount: priced.length,
             areaCount: withArea.length,
             imageCount: pool.filter(hasImage).length,
+            longListedCount: stale.length,
+            longListedMinDays: LONG_LISTED_MIN_DAYS,
             selectedCount: finalComparables.length,
             targetTotal: TARGET_TOTAL,
         },
@@ -340,7 +398,10 @@ function selectPortfolioGroups(items = [], options = {}) {
 export {
     PROVIDER_TIMEOUT_MS,
     TARGET_GROUP_SIZE,
+    TARGET_STALE_GROUP_SIZE,
     TARGET_TOTAL,
+    LONG_LISTED_MIN_DAYS,
+    comparableAgeDays,
     comparableKey,
     comparablePrice,
     comparableUnitPrice,

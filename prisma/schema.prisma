@@ -266,8 +266,10 @@ model BuildingDetails {
   hasChildrenPark      Boolean?
   hasFireplace         Boolean?
   hasGenerator         Boolean?
+  hasHydrophore        Boolean?
   hasSportsArea        Boolean?
   hasThermalInsulation Boolean?
+  hasWaterTank         Boolean?
   isOnMainRoad         Boolean?
   isOnStreet           Boolean?
   openParking          Boolean?

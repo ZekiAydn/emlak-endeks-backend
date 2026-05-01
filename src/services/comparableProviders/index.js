@@ -72,8 +72,8 @@ function buildMarketProjection(comparables = [], rawCount = null) {
         waitingComparableCount: null,
         annualChangePct: null,
         amortizationYears: null,
-        summary: `${comparables.length} otomatik emsal 6 düşük, 6 orta, 6 yüksek fiyat bandında seçildi.`,
-        manualText: `${comparables.length} otomatik emsal 6 düşük, 6 orta, 6 yüksek fiyat bandında seçildi.`,
+        summary: `${comparables.length} otomatik emsal fiyat dağılımı ve uzun süre yayında kalma sinyaliyle seçildi.`,
+        manualText: `${comparables.length} otomatik emsal fiyat dağılımı ve uzun süre yayında kalma sinyaliyle seçildi.`,
     };
 }
 

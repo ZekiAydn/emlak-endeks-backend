@@ -384,6 +384,13 @@ async function cacheBundleComparableImages(bundle, sourceMeta = null) {
     };
 }
 
+function publicPricingNote(value) {
+    const text = cleanString(value);
+    if (!text) return null;
+    if (text.includes("minimum satış değeri taban alınarak")) return null;
+    return text;
+}
+
 function normalizePricingAnalysisForSave(pricingAnalysis, { body = {}, report = null, propertyDetails = null, buildingDetails = null, locationData = null } = {}) {
     const sanitized = sanitizePricingAnalysis(pricingAnalysis);
     if (!sanitized) return null;
@@ -823,7 +830,7 @@ async function updateComparableDataForReport(req, report, body = {}) {
               expectedPricePerSqm: policyPriceBand.expectedPricePerSqm,
               maxPricePerSqm: policyPriceBand.maxPricePerSqm,
               confidence: policyPriceBand.confidence,
-              note: report.pricingAnalysis?.note || policyPriceBand.note,
+              note: publicPricingNote(report.pricingAnalysis?.note) || null,
               aiJson: {
                   ...(report.pricingAnalysis?.aiJson || {}),
                   saleStrategy: policyPriceBand.saleStrategy,
@@ -1460,7 +1467,7 @@ export const autofillExternalData = async (req, res) => {
               expectedPricePerSqm: policyPriceBand.expectedPricePerSqm,
               maxPricePerSqm: policyPriceBand.maxPricePerSqm,
               confidence: policyPriceBand.confidence,
-              note: report.pricingAnalysis?.note || policyPriceBand.note,
+              note: publicPricingNote(report.pricingAnalysis?.note) || null,
               aiJson: {
                   ...(report.pricingAnalysis?.aiJson || {}),
                   saleStrategy: policyPriceBand.saleStrategy,
@@ -1651,7 +1658,9 @@ export const aiPriceIndex = async (req, res) => {
             openPool: buildingDetails.openPool ?? null,
             closedPool: buildingDetails.closedPool ?? null,
             hasGenerator: buildingDetails.hasGenerator ?? null,
+            hasHydrophore: buildingDetails.hasHydrophore ?? null,
             hasThermalInsulation: buildingDetails.hasThermalInsulation ?? null,
+            hasWaterTank: buildingDetails.hasWaterTank ?? null,
             hasAC: buildingDetails.hasAC ?? null,
             hasFireplace: buildingDetails.hasFireplace ?? null,
             buildingCondition: buildingDetails.buildingCondition ?? null,

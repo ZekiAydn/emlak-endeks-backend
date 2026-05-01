@@ -88,7 +88,9 @@ function sanitizeBuildingDetails(bd) {
         closedPool: bd.closedPool,
 
         hasGenerator: bd.hasGenerator,
+        hasHydrophore: bd.hasHydrophore,
         hasThermalInsulation: bd.hasThermalInsulation,
+        hasWaterTank: bd.hasWaterTank,
         hasAC: bd.hasAC,
         hasFireplace: bd.hasFireplace,
     });

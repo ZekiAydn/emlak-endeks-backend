@@ -425,6 +425,10 @@ function listingToComparable(row = {}) {
     const netArea = toNumber(row.netM2) ?? toNumber(row.netAreaM2) ?? null;
     const grossArea = toNumber(row.grossM2) ?? toNumber(row.grossAreaM2) ?? null;
     const sourceUrl = row.sourceUrl || row.listingUrl || null;
+    const providerRaw = row.providerRaw && typeof row.providerRaw === "object" && !Array.isArray(row.providerRaw)
+        ? row.providerRaw
+        : {};
+    const listingDate = providerRaw.createdAt || providerRaw.listingDate || providerRaw.publishedAt || row.firstSeenAt || row.createdAt;
 
     return {
         title: row.title || "Cache emsal ilanı",
@@ -445,7 +449,7 @@ function listingToComparable(row = {}) {
         imageSource: row.imageSource || "cache",
         address: row.addressText || [row.city, row.district, row.neighborhood].filter(Boolean).join(" / "),
         externalId: row.externalId || `cache:${row.id}`,
-        createdAt: row.createdAt?.toISOString?.() || null,
+        createdAt: listingDate?.toISOString?.() || listingDate || null,
         pricePerSqm: toNumber(row.pricePerSqm) ?? toNumber(row.pricePerM2) ?? comparableUnitPrice({ price: row.price, netArea, grossArea }),
         provider: CACHE_PROVIDER,
         latitude: toNumber(row.latitude),

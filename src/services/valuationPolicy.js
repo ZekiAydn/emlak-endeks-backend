@@ -23,7 +23,7 @@ const SALE_EXPECTED_INFLATION_RATE = 0.15;
 const SALE_MAX_INFLATION_RATE = 0.30;
 
 function policyNote() {
-    return "Fiyat bandı minimum satış değeri taban alınarak 6 aylık ve yıllık enflasyon katsayılarıyla oluşturulmuştur.";
+    return "Fiyat bandı emsal verileri ve rapora girilen taşınmaz özellikleri birlikte değerlendirilerek oluşturulmuştur.";
 }
 
 function premiumFeatureAdjustment(buildingDetails = {}, options = {}) {
@@ -54,7 +54,9 @@ function premiumFeatureAdjustment(buildingDetails = {}, options = {}) {
     add(buildingDetails.closedParking, 0.03, "kapalı otopark");
     add(!buildingDetails.closedParking && buildingDetails.openParking, 0.01, "açık otopark");
     add(buildingDetails.hasGenerator, 0.02, "jeneratör");
+    add(buildingDetails.hasHydrophore, 0.01, "hidrofor");
     add(buildingDetails.hasThermalInsulation, 0.02, "ısı yalıtımı");
+    add(buildingDetails.hasWaterTank, 0.01, "su deposu");
     add(buildingDetails.hasAC, 0.02, "klima");
     add(buildingDetails.hasFireplace, 0.02, "şömine");
 
