@@ -1103,13 +1103,16 @@ export const deleteReport = async (req, res) => {
 export const getReport = async (req, res) => {
     const report = await findReport(req.user.userId, req.params.id);
     let housingIndexTrend = null;
-    try {
-        housingIndexTrend = await fetchHousingIndexTrend(report);
-    } catch (error) {
-        console.warn("[HOUSING_INDEX] fetch failed", {
-            reportId: report.id,
-            message: String(error.message || error),
-        });
+    const includeCharts = req.query.includeCharts === "1" || req.query.includeCharts === "true";
+    if (includeCharts) {
+        try {
+            housingIndexTrend = await fetchHousingIndexTrend(report);
+        } catch (error) {
+            console.warn("[HOUSING_INDEX] fetch failed", {
+                reportId: report.id,
+                message: String(error.message || error),
+            });
+        }
     }
 
     res.json(await withSignedComparableImagesForReport({

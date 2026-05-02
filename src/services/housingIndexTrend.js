@@ -42,17 +42,34 @@ export async function fetchHousingIndexTrend(report = {}) {
     const now = Date.now();
     if (cached && cached.expiresAt > now) return cached.value;
 
-    const url = new URL("https://evds2.tcmb.gov.tr/service/evds/");
-    url.searchParams.set("series", series);
-    url.searchParams.set("startDate", startDate);
-    url.searchParams.set("endDate", endDate);
-    url.searchParams.set("type", "json");
-    url.searchParams.set("key", key);
+    const endpoint = (process.env.TCMB_EVDS_ENDPOINT || "https://evds3.tcmb.gov.tr/igmevdsms-dis/").replace(/\/?$/, "/");
+    const query = [
+        `series=${encodeURIComponent(series)}`,
+        `startDate=${encodeURIComponent(startDate)}`,
+        `endDate=${encodeURIComponent(endDate)}`,
+        "type=json",
+        "formulas=",
+        "frequency=5",
+        "aggregationTypes=",
+    ].join("&");
+    const url = `${endpoint}${query}`;
 
-    const response = await fetch(url, { cache: "no-store" });
+    const response = await fetch(url, {
+        cache: "no-store",
+        headers: {
+            accept: "application/json",
+            key,
+        },
+    });
     if (!response.ok) throw new Error(`TCMB EVDS fetch failed: ${response.status} ${response.statusText}`);
 
-    const points = parseEvdsPoints(await response.json());
+    const contentType = response.headers.get("content-type") || "";
+    const text = await response.text();
+    if (!contentType.includes("application/json")) {
+        throw new Error(`TCMB EVDS JSON beklenirken ${contentType || "bilinmeyen içerik"} döndü.`);
+    }
+
+    const points = parseEvdsPoints(JSON.parse(text));
     if (points.length < 6) return null;
 
     const value = {
