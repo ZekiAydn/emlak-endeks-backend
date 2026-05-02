@@ -27,6 +27,43 @@ function parseEvdsPoints(data) {
         .filter(Boolean);
 }
 
+function pctChange(current, previous) {
+    if (!Number.isFinite(current) || !Number.isFinite(previous) || previous === 0) return null;
+    return ((current - previous) / previous) * 100;
+}
+
+function housingIndexDerived(points = []) {
+    const values = points.map((point) => Number(point.value)).filter(Number.isFinite);
+    if (!values.length) return { metrics: null, yearlyChangePoints: [] };
+
+    const latest = points[points.length - 1];
+    const previous = points[points.length - 2];
+    const yearBase = points.length > 12 ? points[points.length - 13] : null;
+    const threeYearBase = points.length > 36 ? points[points.length - 37] : null;
+    const first = points[0];
+    const yearlyChangePoints = points
+        .map((point, index) => {
+            if (index < 12) return null;
+            const changePct = pctChange(Number(point.value), Number(points[index - 12]?.value));
+            return changePct === null ? null : { date: point.date, value: Number(changePct.toFixed(2)) };
+        })
+        .filter(Boolean);
+
+    return {
+        metrics: {
+            latestDate: latest?.date || null,
+            latestValue: Number(Number(latest?.value).toFixed(2)),
+            previousMonthChangePct: pctChange(Number(latest?.value), Number(previous?.value)),
+            annualChangePct: pctChange(Number(latest?.value), Number(yearBase?.value)),
+            threeYearChangePct: pctChange(Number(latest?.value), Number(threeYearBase?.value)),
+            periodChangePct: pctChange(Number(latest?.value), Number(first?.value)),
+            minValue: Math.min(...values),
+            maxValue: Math.max(...values),
+        },
+        yearlyChangePoints,
+    };
+}
+
 export async function fetchHousingIndexTrend(report = {}) {
     const key = process.env.TCMB_EVDS_API_KEY;
     const series = process.env.TCMB_HOUSING_INDEX_SERIES || "TP.KFE.TR10";
@@ -72,11 +109,14 @@ export async function fetchHousingIndexTrend(report = {}) {
     const points = parseEvdsPoints(JSON.parse(text));
     if (points.length < 6) return null;
 
+    const derived = housingIndexDerived(points);
     const value = {
         source: "TCMB EVDS",
         series,
         label: process.env.TCMB_HOUSING_INDEX_LABEL || "İstanbul Konut Fiyat Endeksi",
         points,
+        metrics: derived.metrics,
+        yearlyChangePoints: derived.yearlyChangePoints,
     };
 
     TCMB_CACHE.set(cacheKey, { value, expiresAt: now + 12 * 60 * 60 * 1000 });
