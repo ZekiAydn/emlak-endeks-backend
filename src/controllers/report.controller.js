@@ -20,6 +20,7 @@ import { propertyCategory } from "../services/propertyCategory.js";
 import { rentalEstimateFromSale, rentalStrategy, saleStrategy } from "../services/valuationPolicy.js";
 import { buildComparableValuationSignals } from "../services/comparableValuationSignals.js";
 import { buildLocationInsights } from "../services/locationInsights.js";
+import { fetchHousingIndexTrend } from "../services/housingIndexTrend.js";
 import { buildStoredMediaData, deleteStoredMediaObject } from "../services/mediaStorage.js";
 import {
     cacheComparableImages,
@@ -1101,7 +1102,23 @@ export const deleteReport = async (req, res) => {
 
 export const getReport = async (req, res) => {
     const report = await findReport(req.user.userId, req.params.id);
-    res.json(await withSignedComparableImagesForReport(report));
+    let housingIndexTrend = null;
+    try {
+        housingIndexTrend = await fetchHousingIndexTrend(report);
+    } catch (error) {
+        console.warn("[HOUSING_INDEX] fetch failed", {
+            reportId: report.id,
+            message: String(error.message || error),
+        });
+    }
+
+    res.json(await withSignedComparableImagesForReport({
+        ...report,
+        externalChartsJson: {
+            ...(report.externalChartsJson || {}),
+            housingIndexTrend,
+        },
+    }));
 };
 
 
