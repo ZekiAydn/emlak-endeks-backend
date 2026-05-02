@@ -17,9 +17,7 @@ import { fetchComparableBundle } from "../services/comparableProviders/index.js"
 import { enrichComparableImages } from "../services/comparableImageEnrichment.js";
 import { saveComparableListings } from "../services/comparableCache.js";
 import { propertyCategory } from "../services/propertyCategory.js";
-import { applyValuationPolicy } from "../services/valuationPolicy.js";
-import { getValuationSettings } from "../services/valuationSettings.js";
-import { quantile, selectValuationComparables } from "../services/comparablePolicy.js";
+import { rentalEstimateFromSale, rentalStrategy, saleStrategy } from "../services/valuationPolicy.js";
 import { buildLocationInsights } from "../services/locationInsights.js";
 import { buildStoredMediaData, deleteStoredMediaObject } from "../services/mediaStorage.js";
 import {
@@ -330,6 +328,28 @@ function pickPricingAnalysisFields(value = {}) {
     };
 }
 
+function directPriceBand(value = {}, areaHint = null, valuationType = "SALE", mode = "PROVIDER_DIRECT") {
+    if (!value) return null;
+    const isRental = String(valuationType || "").toUpperCase() === "RENTAL";
+    const expectedPrice = value.expectedPrice ?? value.avgPrice ?? null;
+    const expectedPricePerSqm = value.expectedPricePerSqm ?? value.avgPricePerSqm ?? null;
+
+    return {
+        ...value,
+        expectedPrice,
+        avgPrice: expectedPrice,
+        expectedPricePerSqm,
+        avgPricePerSqm: expectedPricePerSqm,
+        saleStrategy: isRental ? rentalStrategy() : saleStrategy(),
+        valuationPolicy: {
+            mode,
+            note: "Fiyat bandı doğrudan kaynak fiyat bandından alınmıştır; ek backend değerleme kuralı uygulanmamıştır.",
+        },
+        valuationType: isRental ? "RENTAL" : "SALE",
+        rentalEstimate: isRental ? value.rentalEstimate || null : value.rentalEstimate || rentalEstimateFromSale(expectedPrice, areaHint),
+    };
+}
+
 async function replaceReportMedia(reportId, { type, buffer, mime, filename }) {
     if (!reportId || !type || !buffer || !mime) return null;
 
@@ -395,7 +415,6 @@ function publicPricingNote(value) {
 async function normalizePricingAnalysisForSave(pricingAnalysis, { body = {}, report = null, propertyDetails = null, buildingDetails = null, locationData = null } = {}) {
     const sanitized = sanitizePricingAnalysis(pricingAnalysis);
     if (!sanitized) return null;
-    const valuationSettings = await getValuationSettings();
 
     const location = locationData || (report ? reportLocationSource(report) : {});
     const valuationType = valuationTypeValue(
@@ -403,10 +422,6 @@ async function normalizePricingAnalysisForSave(pricingAnalysis, { body = {}, rep
         body.comparablesJson?.valuationType,
         report?.comparablesJson?.valuationType
     );
-    const category = propertyCategory({
-        reportType: body.reportType ?? location.reportType ?? report?.reportType,
-        propertyType: buildingDetails?.propertyType,
-    });
     const areaHint = firstPositive(
         body.subjectArea,
         propertyDetails?.netArea,
@@ -417,14 +432,7 @@ async function normalizePricingAnalysisForSave(pricingAnalysis, { body = {}, rep
         report?.comparablesJson?.parcelLookup?.properties?.area
     );
 
-    const normalized = applyValuationPolicy(sanitized, areaHint, valuationType, {
-        propertyCategory: category,
-        propertyDetails,
-        buildingDetails,
-        valuationSettings,
-        skipAmenityPremium: true,
-        suppressPolicyNoteAppend: true,
-    });
+    const normalized = directPriceBand(sanitized, areaHint, valuationType, "MANUAL_DIRECT");
 
     const existingAiJson = sanitized.aiJson && typeof sanitized.aiJson === "object" && !Array.isArray(sanitized.aiJson)
         ? sanitized.aiJson
@@ -815,41 +823,11 @@ async function updateComparableDataForReport(req, report, body = {}) {
         externalDataUpdatedAt: new Date().toISOString(),
     };
 
-    const valuationSettings = await getValuationSettings();
-    const policyPriceBand = hasComparables && bundle?.priceBand
-        ? applyValuationPolicy(bundle.priceBand, context.subjectArea, context.comparableCriteria.valuationType, {
-              buildingDetails: context.buildingDetails,
-              propertyDetails: context.propertyDetails,
-              propertyCategory: context.comparableCategory,
-              valuationSettings,
-          })
-        : null;
     const inferredLandArea =
         context.comparableCategory === "land" && context.subjectArea && context.subjectArea > 0
             ? context.subjectArea
             : null;
 
-    const pricingUpdate = policyPriceBand
-        ? {
-              minPrice: policyPriceBand.minPrice,
-              expectedPrice: policyPriceBand.expectedPrice,
-              maxPrice: policyPriceBand.maxPrice,
-              minPricePerSqm: policyPriceBand.minPricePerSqm,
-              expectedPricePerSqm: policyPriceBand.expectedPricePerSqm,
-              maxPricePerSqm: policyPriceBand.maxPricePerSqm,
-              confidence: policyPriceBand.confidence,
-              note: publicPricingNote(report.pricingAnalysis?.note) || null,
-              aiJson: {
-                  ...(report.pricingAnalysis?.aiJson || {}),
-                  saleStrategy: policyPriceBand.saleStrategy,
-                  valuationPolicy: policyPriceBand.valuationPolicy,
-                  rentalEstimate: policyPriceBand.rentalEstimate || null,
-                  valuationType: context.comparableCriteria.valuationType,
-                  valuationSettings,
-                  sourcePriceBand: bundle.priceBand,
-              },
-          }
-        : null;
     const regionalStats = await buildRegionalStatsForReport(report, context, nextComparablesJson.parcelLookup || parcelLookup, warnings);
 
     await prisma.report.update({
@@ -859,16 +837,6 @@ async function updateComparableDataForReport(req, report, body = {}) {
             comparablesJson: nextComparablesJson,
             ...(hasComparables && bundle?.marketProjection ? { marketProjectionJson: bundle.marketProjection } : {}),
             regionalStatsJson: regionalStats,
-            ...(pricingUpdate
-                ? {
-                      pricingAnalysis: {
-                          upsert: {
-                              create: pricingUpdate,
-                              update: pricingUpdate,
-                          },
-                      },
-                  }
-                : {}),
         },
     });
 
@@ -886,7 +854,7 @@ async function updateComparableDataForReport(req, report, body = {}) {
         marketProjection: hasComparables ? bundle?.marketProjection || null : report.marketProjectionJson || null,
         regionalStats,
         landArea: inferredLandArea,
-        pricingAnalysis: pricingUpdate || report.pricingAnalysis || null,
+        pricingAnalysis: report.pricingAnalysis || null,
         sourceMeta: bundle?.sourceMeta || nextComparablesJson.comparableSource || null,
         warnings,
     };
@@ -1459,38 +1427,8 @@ export const autofillExternalData = async (req, res) => {
         }
     }
 
-    const valuationSettings = await getValuationSettings();
-    const policyPriceBand = hasComparables && bundle?.priceBand
-        ? applyValuationPolicy(bundle.priceBand, subjectArea, remaxCriteria.valuationType, {
-              buildingDetails,
-              propertyDetails,
-              propertyCategory: comparableCategory,
-              valuationSettings,
-          })
-        : null;
     const inferredLandArea = comparableCategory === "land" && subjectArea && subjectArea > 0 ? subjectArea : null;
 
-    const pricingUpdate = policyPriceBand
-        ? {
-              minPrice: policyPriceBand.minPrice,
-              expectedPrice: policyPriceBand.expectedPrice,
-              maxPrice: policyPriceBand.maxPrice,
-              minPricePerSqm: policyPriceBand.minPricePerSqm,
-              expectedPricePerSqm: policyPriceBand.expectedPricePerSqm,
-              maxPricePerSqm: policyPriceBand.maxPricePerSqm,
-              confidence: policyPriceBand.confidence,
-              note: publicPricingNote(report.pricingAnalysis?.note) || null,
-              aiJson: {
-                  ...(report.pricingAnalysis?.aiJson || {}),
-                  saleStrategy: policyPriceBand.saleStrategy,
-                  valuationPolicy: policyPriceBand.valuationPolicy,
-                  rentalEstimate: policyPriceBand.rentalEstimate || null,
-                  valuationType: remaxCriteria.valuationType,
-                  valuationSettings,
-                  sourcePriceBand: bundle.priceBand,
-              },
-          }
-        : null;
     const regionalStats = await buildRegionalStatsForReport(
         report,
         {
@@ -1509,16 +1447,6 @@ export const autofillExternalData = async (req, res) => {
             comparablesJson: nextComparablesJson,
             ...(hasComparables && bundle?.marketProjection ? { marketProjectionJson: bundle.marketProjection } : {}),
             regionalStatsJson: regionalStats,
-            ...(pricingUpdate
-                ? {
-                      pricingAnalysis: {
-                          upsert: {
-                              create: pricingUpdate,
-                              update: pricingUpdate,
-                          },
-                      },
-                  }
-                : {}),
         },
     });
 
@@ -1529,7 +1457,7 @@ export const autofillExternalData = async (req, res) => {
         marketProjection: hasComparables ? bundle?.marketProjection || null : report.marketProjectionJson || null,
         regionalStats,
         landArea: inferredLandArea,
-        pricingAnalysis: pricingUpdate || report.pricingAnalysis || null,
+        pricingAnalysis: report.pricingAnalysis || null,
         sourceMeta: bundle?.sourceMeta || nextComparablesJson.comparableSource || null,
         mapMedia,
         warnings,
@@ -1618,23 +1546,8 @@ export const aiPriceIndex = async (req, res) => {
     if (!addressText) throw badRequest("AI analizi için taşınmaz adresi gerekli.", "addressText");
     if (!areaForSqm) throw badRequest("AI analizi için m² bilgisi gerekli.", "netArea");
 
-    const comparableCategory = propertyCategory({
-        reportType: body.reportType ?? location.reportType ?? report.reportType,
-        propertyType: buildingDetails.propertyType,
-    });
-    const subjectRoomText =
-        comparableCategory === "residential" && propertyDetails.roomCount !== undefined && propertyDetails.roomCount !== null
-            ? `${propertyDetails.roomCount}${propertyDetails.salonCount !== undefined && propertyDetails.salonCount !== null ? `+${propertyDetails.salonCount}` : ""}`
-            : null;
     const incomingComparables = comparablesFrom(body, report);
-    const userComparables = selectValuationComparables(incomingComparables, {
-        subjectArea: areaForSqm,
-        subjectRoomText,
-        subjectBuildingAge: buildingDetails?.buildingAge,
-        propertyCategory: comparableCategory,
-    });
-    const valuationSettings = await getValuationSettings();
-
+    const userComparables = incomingComparables;
     const input = {
         client: {
             fullName: report.client?.fullName || report.clientFullName,
@@ -1681,7 +1594,6 @@ export const aiPriceIndex = async (req, res) => {
             buildingCondition: buildingDetails.buildingCondition ?? null,
         },
         comparables: userComparables,
-        valuationSettings,
         locationInsights: regionalStats
             ? {
                   summarySections: regionalStats.summarySections || null,
@@ -1707,35 +1619,15 @@ export const aiPriceIndex = async (req, res) => {
     }
 
     let normalized = normalizePriceIndex(json, areaForSqm);
-    const compPrices = userComparables.map((c) => Number(c.price)).filter(Number.isFinite);
-    const hasComparableCalibration = compPrices.length >= 2;
-    const round1000 = (x) => Math.round(x / 1000) * 1000;
+    const hasComparableInput = userComparables.length > 0;
 
-    if (hasComparableCalibration) {
-        normalized.minPrice = round1000(quantile(compPrices, 0.2) * 0.97);
-        normalized.avgPrice = round1000(quantile(compPrices, 0.5));
-        normalized.maxPrice = round1000(quantile(compPrices, 0.8) * 1.03);
-
-        if (normalized.minPrice > normalized.avgPrice) normalized.avgPrice = normalized.minPrice;
-        if (normalized.avgPrice > normalized.maxPrice) normalized.maxPrice = normalized.avgPrice;
-
-        if (areaForSqm && Number.isFinite(Number(areaForSqm)) && Number(areaForSqm) > 0) {
-            normalized.minPricePerSqm = Math.round(normalized.minPrice / areaForSqm);
-            normalized.avgPricePerSqm = Math.round(normalized.avgPrice / areaForSqm);
-            normalized.maxPricePerSqm = Math.round(normalized.maxPrice / areaForSqm);
-        }
-
+    if (hasComparableInput) {
         normalized.comps = userComparables;
-        normalized.missingData = [];
+        normalized.missingData = Array.isArray(normalized.missingData) ? normalized.missingData : [];
         normalized.assumptions = Array.isArray(normalized.assumptions) ? normalized.assumptions : [];
-        normalized.assumptions.unshift("Fiyat aralığı kullanıcı tarafından girilen emsallere göre kalibre edilmiştir.");
-        if (incomingComparables.length > userComparables.length) {
-            normalized.assumptions.unshift(`${incomingComparables.length - userComparables.length} uyumsuz veya silinmiş emsal AI kalibrasyonuna dahil edilmemiştir.`);
-        }
-        normalized.confidence = normalized.confidence ?? null;
-        normalized.confidence = Number.isFinite(Number(normalized.confidence))
-            ? Math.max(Number(normalized.confidence), 0.6)
-            : 0.65;
+        normalized.confidence = normalized.confidence !== null && Number.isFinite(Number(normalized.confidence))
+            ? Number(normalized.confidence)
+            : 0.6;
     } else {
         applyFallbackPriceEstimate(normalized, {
             addressText,
@@ -1761,27 +1653,25 @@ export const aiPriceIndex = async (req, res) => {
             normalized.missingData.unshift("Manuel emsal verisi");
         }
 
-        normalized.confidence = Number.isFinite(Number(normalized.confidence))
+        normalized.confidence = normalized.confidence !== null && Number.isFinite(Number(normalized.confidence))
             ? Math.min(Number(normalized.confidence), 0.45)
             : 0.35;
     }
 
-    normalized = applyValuationPolicy(
-        {
-            ...normalized,
-            expectedPrice: normalized.avgPrice,
-            expectedPricePerSqm: normalized.avgPricePerSqm,
-        },
-        areaForSqm,
-        valuationType,
-        {
-            buildingDetails,
-            propertyDetails,
-            propertyCategory: comparableCategory,
-            valuationSettings,
-            skipAmenityPremium: !hasComparableCalibration,
-        }
-    );
+    const isRentalValuation = String(valuationType || "").toUpperCase() === "RENTAL";
+    normalized.expectedPrice = normalized.avgPrice;
+    normalized.expectedPricePerSqm = normalized.avgPricePerSqm;
+    normalized.saleStrategy = isRentalValuation ? rentalStrategy() : saleStrategy();
+    normalized.valuationType = isRentalValuation ? "RENTAL" : "SALE";
+    normalized.valuationPolicy = {
+        mode: "GEMINI_DIRECT",
+        note: hasComparableInput
+            ? "Fiyat bandı Gemini tarafından verilen emsaller ve taşınmaz özellikleri karşılaştırılarak oluşturulmuştur; ek backend fiyat düzeltmesi uygulanmamıştır."
+            : "Fiyat bandı Gemini ön tahmini ve düşük güvenli fallback ile oluşturulmuştur; ek backend fiyat düzeltmesi uygulanmamıştır.",
+    };
+    if (!isRentalValuation) {
+        normalized.rentalEstimate = normalized.rentalEstimate || rentalEstimateFromSale(normalized.avgPrice, areaForSqm);
+    }
 
     const note = buildAiNote(normalized);
 
@@ -1801,7 +1691,7 @@ export const aiPriceIndex = async (req, res) => {
                         maxPricePerSqm: normalized.maxPricePerSqm,
                         confidence: normalized.confidence,
                         note,
-                        aiJson: { raw: json, rawText, normalized, saleStrategy: normalized.saleStrategy, valuationPolicy: normalized.valuationPolicy, rentalEstimate: normalized.rentalEstimate || null, valuationType, valuationSettings, meta: { at: new Date().toISOString(), review: "USER_CONTROLLED" } },
+                        aiJson: { raw: json, rawText, normalized, saleStrategy: normalized.saleStrategy, valuationPolicy: normalized.valuationPolicy, rentalEstimate: normalized.rentalEstimate || null, valuationType, meta: { at: new Date().toISOString(), review: "USER_CONTROLLED" } },
                     },
                     update: {
                         minPrice: normalized.minPrice,
@@ -1812,7 +1702,7 @@ export const aiPriceIndex = async (req, res) => {
                         maxPricePerSqm: normalized.maxPricePerSqm,
                         confidence: normalized.confidence,
                         note,
-                        aiJson: { raw: json, rawText, normalized, saleStrategy: normalized.saleStrategy, valuationPolicy: normalized.valuationPolicy, rentalEstimate: normalized.rentalEstimate || null, valuationType, valuationSettings, meta: { at: new Date().toISOString(), review: "USER_CONTROLLED" } },
+                        aiJson: { raw: json, rawText, normalized, saleStrategy: normalized.saleStrategy, valuationPolicy: normalized.valuationPolicy, rentalEstimate: normalized.rentalEstimate || null, valuationType, meta: { at: new Date().toISOString(), review: "USER_CONTROLLED" } },
                     },
                 },
             },
@@ -1835,7 +1725,6 @@ export const aiPriceIndex = async (req, res) => {
         ...normalized,
         regionalStats,
         aiNote: note,
-        valuationSettings,
         needsUserApproval: true,
         reviewMode: "USER_CONTROLLED",
     });

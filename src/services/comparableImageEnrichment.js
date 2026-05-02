@@ -1,8 +1,9 @@
 import dns from "node:dns/promises";
 import net from "node:net";
+import { TARGET_TOTAL } from "./comparablePolicy.js";
 import { comparableSearchText, propertyCategory } from "./propertyCategory.js";
 
-const MAX_COMPARABLES = 24;
+const MAX_COMPARABLES = TARGET_TOTAL;
 const MAX_HTML_BYTES = 700_000;
 const FETCH_TIMEOUT_MS = 7000;
 const REAL_IMAGE_RESERVE_FOR_MOCKS = 0;

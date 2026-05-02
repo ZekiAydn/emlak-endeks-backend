@@ -17,7 +17,8 @@ function toNumberOrNull(v) {
 function clamp01(v) {
     const n = toNumberOrNull(v);
     if (n === null) return null;
-    return Math.max(0, Math.min(1, n));
+    const scaled = n > 1 && n <= 100 ? n / 100 : n;
+    return Math.max(0, Math.min(1, scaled));
 }
 
 function clampNum(v, min, max) {

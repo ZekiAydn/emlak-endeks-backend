@@ -1,4 +1,4 @@
-const TARGET_GROUP_SIZE = 6;
+const TARGET_GROUP_SIZE = 8;
 const TARGET_STALE_GROUP_SIZE = 6;
 const TARGET_TOTAL = TARGET_GROUP_SIZE * 3 + TARGET_STALE_GROUP_SIZE;
 const PROVIDER_TIMEOUT_MS = 45000;
@@ -335,10 +335,49 @@ function filterByBuildingAge(items = [], options = {}) {
     return ageMatched.length >= MIN_VALUATION_SAMPLE ? ageMatched : items;
 }
 
+function filterByStrictComparableFit(items = [], options = {}) {
+    let pool = Array.isArray(items) ? items : [];
+    const targetRoom = String(options.subjectRoomText || "").trim();
+    const subjectArea = toNumber(options.subjectArea);
+    const subjectBuildingAge = toNumber(options.subjectBuildingAge);
+    const isResidential = !options.propertyCategory || options.propertyCategory === "residential";
+
+    if (isResidential && targetRoom) {
+        const exactRoom = pool.filter((item) => roomMatches(item?.roomText, targetRoom));
+        if (exactRoom.length >= MIN_VALUATION_SAMPLE) pool = exactRoom;
+    }
+
+    if (Number.isFinite(subjectArea) && subjectArea > 0) {
+        const areaMatched = pool.filter((item) => {
+            const area = comparableArea(item);
+            if (!Number.isFinite(area) || area <= 0) return false;
+            const ratio = area / subjectArea;
+            if (options.propertyCategory === "land") return ratio >= 0.45 && ratio <= 2.25;
+            if (options.propertyCategory === "commercial") return ratio >= 0.65 && ratio <= 1.65;
+            return ratio >= 0.7 && ratio <= 1.35;
+        });
+        if (areaMatched.length >= MIN_VALUATION_SAMPLE) pool = areaMatched;
+    }
+
+    if (isResidential && Number.isFinite(subjectBuildingAge) && subjectBuildingAge >= 0) {
+        const ageMatched = pool.filter((item) => {
+            const age = comparableBuildingAge(item);
+            if (!Number.isFinite(age)) return false;
+            if (subjectBuildingAge <= 5) return age <= 8;
+            if (subjectBuildingAge >= 20) return age >= 10;
+            return Math.abs(age - subjectBuildingAge) <= 10;
+        });
+        if (ageMatched.length >= MIN_VALUATION_SAMPLE) pool = ageMatched;
+    }
+
+    return pool;
+}
+
 function selectValuationComparables(items = [], options = {}) {
     let pool = uniqueComparables(items).filter((item) => Number.isFinite(comparablePrice(item)));
     if (!pool.length) return [];
 
+    pool = filterByStrictComparableFit(pool, options);
     pool = trimOutliers(pool);
     const targetRoom = String(options.subjectRoomText || "").trim();
 
@@ -368,6 +407,7 @@ function selectPortfolioGroups(items = [], options = {}) {
     const now = Date.now();
     const unique = uniqueComparables(items).map((item) => withAgeMeta(item, now));
     const priced = unique.filter((item) => Number.isFinite(comparablePrice(item)));
+    const strict = filterByStrictComparableFit(priced, options);
     const withArea = priced.filter((item) => Number.isFinite(comparableArea(item)));
     let pool = withArea.length >= TARGET_TOTAL ? withArea : priced;
 
@@ -416,7 +456,15 @@ function selectPortfolioGroups(items = [], options = {}) {
         ...stale.map((item) => ({ ...item, group: "stale", longListed: true })),
     ];
 
-    const finalComparables = uniqueComparables(tagged).slice(0, TARGET_TOTAL);
+    let selected = uniqueComparables(tagged);
+    if (selected.length < TARGET_TOTAL) {
+        selected.forEach((item) => used.add(comparableKey(item)));
+        const fill = selectBest(pool, TARGET_TOTAL - selected.length, used, options)
+            .map((item) => ({ ...item, group: "mid" }));
+        selected = uniqueComparables([...selected, ...fill]);
+    }
+
+    const finalComparables = selected.slice(0, TARGET_TOTAL);
     const finalGroups = {
         low: finalComparables.filter((item) => item.group === "low").map(comparableKey).filter(Boolean),
         mid: finalComparables.filter((item) => item.group === "mid").map(comparableKey).filter(Boolean),
@@ -436,6 +484,7 @@ function selectPortfolioGroups(items = [], options = {}) {
             longListedMinDays: LONG_LISTED_MIN_DAYS,
             selectedCount: finalComparables.length,
             targetTotal: TARGET_TOTAL,
+            strictFitCount: strict.length,
         },
     };
 }
