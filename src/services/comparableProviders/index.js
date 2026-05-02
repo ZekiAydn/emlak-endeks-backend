@@ -1,7 +1,6 @@
 import { fetchApifyEmlakjetComparableBundle } from "./apifyEmlakjetProvider.js";
 import { fetchHepsiemlakComparableBundle } from "./hepsiemlakProvider.js";
 import { fetchRemaxComparableBundle } from "./remaxProvider.js";
-import { fetchSerpSnippetComparableBundle } from "./serpSnippetProvider.js";
 import {
     PROVIDER_TIMEOUT_MS,
     TARGET_STALE_GROUP_SIZE,
@@ -33,11 +32,6 @@ const PROVIDERS = {
     APIFY_EMLAKJET: {
         name: "APIFY_EMLAKJET",
         fetch: fetchApifyEmlakjetComparableBundle,
-        costTier: "paid",
-    },
-    SERP_SNIPPET: {
-        name: "SERP_SNIPPET",
-        fetch: fetchSerpSnippetComparableBundle,
         costTier: "paid",
     },
 };
@@ -151,7 +145,7 @@ function buildRegionalStats(criteria = {}, comparables = [], marketProjection = 
 }
 
 function selectedProviders() {
-    const raw = process.env.COMPARABLE_PROVIDERS || "HEPSIEMLAK,REMAX_PUBLIC,APIFY_EMLAKJET,SERP_SNIPPET";
+    const raw = process.env.COMPARABLE_PROVIDERS || "HEPSIEMLAK,REMAX_PUBLIC,APIFY_EMLAKJET";
     const keys = raw
         .split(",")
         .map((item) => item.trim().toUpperCase())
@@ -246,11 +240,7 @@ function mergeProviderBundles(partialBundles = [], warnings = [], options = {}) 
             fetchedAt: new Date().toISOString(),
             recordCount: providerRecordCount || diagnostics.rawCount,
             sampleCount: portfolio.comparables.length,
-            confidence: providerOnlyCache
-                ? "medium"
-                : providers.includes("SERP_SNIPPET") || providers.some((item) => String(item).includes("SERP"))
-                  ? "low"
-                  : "medium",
+            confidence: "medium",
             cache: {
                 hit: cacheCount > 0,
                 count: cacheCount,

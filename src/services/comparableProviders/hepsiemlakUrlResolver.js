@@ -1,4 +1,4 @@
-import { comparableSearchText, propertyCategory, valuationType } from "../propertyCategory.js";
+import { propertyCategory, valuationType } from "../propertyCategory.js";
 
 const HEPSIEMLAK_BASE_URL = "https://www.hepsiemlak.com";
 
@@ -68,18 +68,6 @@ function detectPathType(criteria = {}) {
     return "daire";
 }
 
-function propertySearchText(criteria = {}) {
-    const typeSlug = detectPathType(criteria);
-    const transaction = valuationType(criteria) === "rental" ? "kiralık" : "satılık";
-
-    if (typeSlug === "isyeri") return `${transaction} ${comparableSearchText(criteria)}`;
-    if (typeSlug === "arsa") return `${transaction} ${comparableSearchText(criteria)}`;
-    if (typeSlug === "villa") return `${transaction} villa`;
-    if (typeSlug === "residence") return `${transaction} residence`;
-
-    return `${transaction} daire`;
-}
-
 function withSort(url, sortField, sortDirection) {
     if (!sortField || !sortDirection) return url;
 
@@ -125,18 +113,6 @@ function buildHepsiemlakCandidateUrls(criteria = {}, { sortField = null, sortDir
     return uniq(paths).map((path) => withSort(`${HEPSIEMLAK_BASE_URL}${path}`, sortField, sortDirection));
 }
 
-function buildSerpQuery(criteria = {}) {
-    return [
-        "site:hepsiemlak.com",
-        criteria.city,
-        criteria.district,
-        criteria.neighborhood,
-        propertySearchText(criteria),
-    ]
-        .filter(Boolean)
-        .join(" ");
-}
-
 function isUsefulHepsiemlakUrl(url) {
     const text = String(url || "").trim();
 
@@ -162,134 +138,13 @@ function isUsefulHepsiemlakUrl(url) {
     );
 }
 
-function normalizeSerpUrl(url) {
-    const text = String(url || "").trim();
-    if (!text) return null;
-
-    try {
-        const parsed = new URL(text);
-        parsed.hash = "";
-        const keep = new URLSearchParams();
-        for (const [key, value] of parsed.searchParams.entries()) {
-            const lower = key.toLowerCase();
-            if (lower.startsWith("utm_")) continue;
-            if (["gclid", "fbclid", "yclid", "mc_cid", "mc_eid"].includes(lower)) continue;
-            if (["sortfield", "sortdirection"].includes(lower)) keep.set(key, value);
-        }
-        parsed.search = keep.toString();
-        return parsed.toString();
-    } catch {
-        return text;
-    }
-}
-
-async function searchWithSerpApi(criteria = {}) {
-    const apiKey = process.env.SERPAPI_KEY;
-    if (!apiKey) return [];
-
-    const query = buildSerpQuery(criteria);
-    const maxResults = Math.min(Number(10), 20);
-
-    const url = new URL("https://serpapi.com/search.json");
-    url.searchParams.set("engine", "google");
-    url.searchParams.set("q", query);
-    url.searchParams.set("hl", "tr");
-    url.searchParams.set("gl", "tr");
-    url.searchParams.set("num", String(maxResults));
-    url.searchParams.set("api_key", apiKey);
-
-    console.log("[HEPSIEMLAK_URL_RESOLVER] serpapi search", { query });
-
-    const response = await fetch(url.toString(), {
-        headers: { accept: "application/json" },
-        cache: "no-store",
-    });
-
-    const json = await response.json().catch(() => null);
-
-    if (!response.ok) {
-        throw new Error(`SerpAPI cevap vermedi (${response.status}): ${JSON.stringify(json).slice(0, 300)}`);
-    }
-
-    const organic = Array.isArray(json?.organic_results) ? json.organic_results : [];
-
-    const links = organic
-        .map((item) => normalizeSerpUrl(item?.link))
-        .filter(isUsefulHepsiemlakUrl);
-
-    console.log("[HEPSIEMLAK_URL_RESOLVER] serpapi result", {
-        query,
-        count: links.length,
-        links: links.slice(0, 5),
-    });
-
-    return links;
-}
-
-async function searchSerpApiOrganic(query, options = {}) {
-    const apiKey = process.env.SERPAPI_KEY;
-    if (!apiKey) return [];
-
-    const maxResults = Math.min(Number(options.maxResults || 10), 20);
-    const start = Math.max(0, Number(options.start || 0));
-
-    const url = new URL("https://serpapi.com/search.json");
-    url.searchParams.set("engine", "google");
-    url.searchParams.set("q", query);
-    url.searchParams.set("hl", "tr");
-    url.searchParams.set("gl", "tr");
-    url.searchParams.set("num", String(maxResults));
-    if (start > 0) url.searchParams.set("start", String(start));
-    url.searchParams.set("api_key", apiKey);
-
-    console.log("[SERPAPI] organic search", { query, maxResults, start });
-
-    const response = await fetch(url.toString(), {
-        headers: { accept: "application/json" },
-        cache: "no-store",
-    });
-
-    const json = await response.json().catch(() => null);
-
-    if (!response.ok) {
-        throw new Error(`SerpAPI cevap vermedi (${response.status}): ${JSON.stringify(json).slice(0, 300)}`);
-    }
-
-    return Array.isArray(json?.organic_results) ? json.organic_results : [];
-}
-
 async function resolveHepsiemlakUrls(criteria = {}, sortOptions = {}) {
-    const mode ="CANDIDATES_ONLY";
-    const candidates = buildHepsiemlakCandidateUrls(criteria, sortOptions);
-
-    if (mode !== "CANDIDATES_THEN_SERP") {
-        return candidates;
-    }
-
-    try {
-        const serpUrls = await searchWithSerpApi(criteria);
-
-        const sortedSerpUrls = serpUrls.map((url) =>
-            withSort(url, sortOptions.sortField, sortOptions.sortDirection)
-        );
-
-        return uniq([...sortedSerpUrls, ...candidates]);
-    } catch (error) {
-        console.warn("[HEPSIEMLAK_URL_RESOLVER] serp failed", {
-            message: String(error.message || error),
-        });
-
-        return candidates;
-    }
+    return buildHepsiemlakCandidateUrls(criteria, sortOptions);
 }
 
 export {
     resolveHepsiemlakUrls,
     buildHepsiemlakCandidateUrls,
-    buildSerpQuery,
-    searchWithSerpApi,
-    searchSerpApiOrganic,
-    normalizeSerpUrl,
     isUsefulHepsiemlakUrl,
     withSort,
 };
