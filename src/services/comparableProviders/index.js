@@ -92,7 +92,7 @@ function buildPriceBand(comparables = [], subjectArea = null, options = {}) {
     };
 }
 
-function buildMarketProjection(comparables = [], rawCount = null, diagnostics = {}) {
+export function buildMarketProjection(comparables = [], rawCount = null, diagnostics = {}) {
     const days = comparables.map((item) => toNumber(item?.daysOnMarket)).filter(Number.isFinite);
     const averageMarketingDays = days.length
         ? Math.round(days.reduce((sum, item) => sum + item, 0) / days.length)

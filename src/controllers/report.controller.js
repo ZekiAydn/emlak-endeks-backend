@@ -13,7 +13,7 @@ import {
     buildAiNote,
 } from "../utils/reportHelpers.js";
 import { badRequest, notFound } from "../utils/errors.js";
-import { fetchComparableBundle } from "../services/comparableProviders/index.js";
+import { buildMarketProjection, fetchComparableBundle } from "../services/comparableProviders/index.js";
 import { enrichComparableImages } from "../services/comparableImageEnrichment.js";
 import { saveComparableListings } from "../services/comparableCache.js";
 import { propertyCategory } from "../services/propertyCategory.js";
@@ -807,6 +807,7 @@ async function updateComparableDataForReport(req, report, body = {}) {
                   comparables: bundle.comparables,
                   groups: bundle.groups,
                   comparableSource: bundle.sourceMeta,
+                  marketProjection: bundle.marketProjection || report.comparablesJson?.marketProjection || null,
                   apifyEmlakjetSource:
                       bundle.sourceMeta?.provider === "APIFY_EMLAKJET" || bundle.sourceMeta?.providers?.includes("APIFY_EMLAKJET")
                           ? bundle.sourceMeta
@@ -1389,6 +1390,7 @@ export const autofillExternalData = async (req, res) => {
                   comparables: bundle.comparables,
                   groups: bundle.groups,
                   comparableSource: bundle.sourceMeta,
+                  marketProjection: bundle.marketProjection || report.comparablesJson?.marketProjection || null,
                   apifyEmlakjetSource:
                       bundle.sourceMeta?.provider === "APIFY_EMLAKJET" || bundle.sourceMeta?.providers?.includes("APIFY_EMLAKJET")
                           ? bundle.sourceMeta
@@ -1533,6 +1535,12 @@ export const aiPriceIndex = async (req, res) => {
         ...(body.propertyDetails || {}),
     };
     const regionalStats = body.regionalStatsJson || body.regionalStats || report.regionalStatsJson || null;
+    let existingMarketProjection =
+        body.marketProjectionJson ||
+        body.marketProjection ||
+        report.marketProjectionJson ||
+        report.comparablesJson?.marketProjection ||
+        null;
 
     const buildingDetails = {
         ...(report.buildingDetails || {}),
@@ -1554,6 +1562,17 @@ export const aiPriceIndex = async (req, res) => {
         landArea,
     });
     const userComparables = valuationSignals.comparables;
+    if (!existingMarketProjection && userComparables.length) {
+        const projectionSourceMeta =
+            report.comparablesJson?.comparableSource ||
+            report.comparablesJson?.apifyEmlakjetSource ||
+            {};
+        existingMarketProjection = buildMarketProjection(
+            userComparables,
+            projectionSourceMeta.recordCount || userComparables.length,
+            projectionSourceMeta.policy?.diagnostics || {}
+        );
+    }
     const input = {
         client: {
             fullName: report.client?.fullName || report.clientFullName,
@@ -1679,13 +1698,14 @@ export const aiPriceIndex = async (req, res) => {
     if (!isRentalValuation) {
         normalized.rentalEstimate = normalized.rentalEstimate || rentalEstimateFromSale(normalized.avgPrice, areaForSqm);
     }
+    normalized.marketProjection = normalized.marketProjection || existingMarketProjection || null;
 
     const note = buildAiNote(normalized);
 
     await prisma.report.update({
         where: { id: reportId },
         data: {
-            marketProjectionJson: normalized.marketProjection || null,
+            marketProjectionJson: normalized.marketProjection,
             regionalStatsJson: regionalStats,
             pricingAnalysis: {
                 upsert: {
