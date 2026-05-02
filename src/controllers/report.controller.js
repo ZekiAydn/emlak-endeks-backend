@@ -18,6 +18,7 @@ import { enrichComparableImages } from "../services/comparableImageEnrichment.js
 import { saveComparableListings } from "../services/comparableCache.js";
 import { propertyCategory } from "../services/propertyCategory.js";
 import { rentalEstimateFromSale, rentalStrategy, saleStrategy } from "../services/valuationPolicy.js";
+import { buildComparableValuationSignals } from "../services/comparableValuationSignals.js";
 import { buildLocationInsights } from "../services/locationInsights.js";
 import { buildStoredMediaData, deleteStoredMediaObject } from "../services/mediaStorage.js";
 import {
@@ -1547,7 +1548,12 @@ export const aiPriceIndex = async (req, res) => {
     if (!areaForSqm) throw badRequest("AI analizi için m² bilgisi gerekli.", "netArea");
 
     const incomingComparables = comparablesFrom(body, report);
-    const userComparables = incomingComparables;
+    const valuationSignals = buildComparableValuationSignals(incomingComparables, {
+        propertyDetails,
+        buildingDetails,
+        landArea,
+    });
+    const userComparables = valuationSignals.comparables;
     const input = {
         client: {
             fullName: report.client?.fullName || report.clientFullName,
@@ -1594,6 +1600,7 @@ export const aiPriceIndex = async (req, res) => {
             buildingCondition: buildingDetails.buildingCondition ?? null,
         },
         comparables: userComparables,
+        valuationGuidance: valuationSignals.guidance,
         locationInsights: regionalStats
             ? {
                   summarySections: regionalStats.summarySections || null,
@@ -1691,7 +1698,7 @@ export const aiPriceIndex = async (req, res) => {
                         maxPricePerSqm: normalized.maxPricePerSqm,
                         confidence: normalized.confidence,
                         note,
-                        aiJson: { raw: json, rawText, normalized, saleStrategy: normalized.saleStrategy, valuationPolicy: normalized.valuationPolicy, rentalEstimate: normalized.rentalEstimate || null, valuationType, meta: { at: new Date().toISOString(), review: "USER_CONTROLLED" } },
+                        aiJson: { raw: json, rawText, normalized, valuationGuidance: valuationSignals.guidance, saleStrategy: normalized.saleStrategy, valuationPolicy: normalized.valuationPolicy, rentalEstimate: normalized.rentalEstimate || null, valuationType, meta: { at: new Date().toISOString(), review: "USER_CONTROLLED" } },
                     },
                     update: {
                         minPrice: normalized.minPrice,
@@ -1702,7 +1709,7 @@ export const aiPriceIndex = async (req, res) => {
                         maxPricePerSqm: normalized.maxPricePerSqm,
                         confidence: normalized.confidence,
                         note,
-                        aiJson: { raw: json, rawText, normalized, saleStrategy: normalized.saleStrategy, valuationPolicy: normalized.valuationPolicy, rentalEstimate: normalized.rentalEstimate || null, valuationType, meta: { at: new Date().toISOString(), review: "USER_CONTROLLED" } },
+                        aiJson: { raw: json, rawText, normalized, valuationGuidance: valuationSignals.guidance, saleStrategy: normalized.saleStrategy, valuationPolicy: normalized.valuationPolicy, rentalEstimate: normalized.rentalEstimate || null, valuationType, meta: { at: new Date().toISOString(), review: "USER_CONTROLLED" } },
                     },
                 },
             },
